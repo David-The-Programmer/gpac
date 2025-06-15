@@ -1,5 +1,6 @@
 // import cake/delete as d
 import cake
+import cake/param
 import cake/dialect/sqlite_dialect
 import cake/insert as i
 
@@ -8,7 +9,9 @@ import cake/insert as i
 import envoy
 
 // import gleam/decode/dynamic
+import gleam/dynamic/decode
 import gleam/result
+import gleam/list
 import simplifile
 import sqlight
 
@@ -174,37 +177,49 @@ fn grade_string_to_grade(grade_str: String) -> Result(Grade, BackendError) {
   }
 }
 
-// pub fn add_module(
-//   code: String,
-//   units: Int,
-//   grade: Grade,
-// ) -> Result(Nil, BackendError) {
-//   use is_init <- result.try(is_initialised())
-//   use _ <- result.try(fn() {
-//     case is_init {
-//       False -> Error(NotInitialised)
-//       True -> Ok(Nil)
-//     }
-//   }())
-//   use db_filepath <- result.try(db_filepath())
-//   use conn <- result.try(
-//     sqlight.open(db_filepath)
-//     |> result.map_error(fn(e) { SqlightError(e) }),
-//   )
-//
-//   let insert_stmt =
-//     [
-//       [i.string(code), i.int(units), grade_to_string(grade) |> i.string]
-//       |> i.row,
-//     ]
-//     |> i.from_values(table_name: "modules", columns: ["code", "units", "grade"])
-//     |> i.to_query
-//     |> sqlite_dialect.write_query_to_prepared_statement
-//     |> cake.get_sql
-//
-//   use _ <- result.try(
-//     sqlight.exec(insert_stmt, conn)
-//     |> result.map_error(fn(e) { SqlightError(e) }),
-//   )
-//   Ok(Nil)
-// }
+pub fn cake_param_to_sqlight_value(param: param.Param) -> sqlight.Value {
+  case param {
+    param.BoolParam(v) -> sqlight.bool(v)
+    param.FloatParam(v) -> sqlight.float(v)
+    param.IntParam(v) -> sqlight.int(v)
+    param.StringParam(v) -> sqlight.text(v)
+    param.NullParam -> sqlight.null()
+  }
+}
+
+pub fn add_module(
+  code: String,
+  units: Int,
+  grade: Grade,
+) -> Result(Nil, BackendError) {
+  use is_init <- result.try(is_initialised())
+  use _ <- result.try(fn() {
+    case is_init {
+      False -> Error(NotInitialised)
+      True -> Ok(Nil)
+    }
+  }())
+  use db_filepath <- result.try(db_filepath())
+  use conn <- result.try(
+    sqlight.open(db_filepath)
+    |> result.map_error(fn(e) { SqlightError(e) }),
+  )
+
+  let prepared_stmt =
+    [
+      [i.string(code), i.int(units), grade_to_string(grade) |> i.string]
+      |> i.row,
+    ]
+    |> i.from_values(table_name: "modules", columns: ["code", "units", "grade"])
+    |> i.to_query
+    |> sqlite_dialect.write_query_to_prepared_statement
+
+  let sql = prepared_stmt |> cake.get_sql
+  let args = prepared_stmt |> cake.get_params |> list.map(cake_param_to_sqlight_value)
+
+  use _ <- result.try(
+    sqlight.query(sql, conn, args, decode.dynamic)
+    |> result.map_error(fn(e) { SqlightError(e) }),
+  )
+  Ok(Nil)
+}
