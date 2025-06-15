@@ -1,4 +1,6 @@
 // import cake/delete as d
+import cake
+import cake/dialect/sqlite_dialect
 import cake/insert as i
 
 // import cake/select as s
@@ -10,13 +12,12 @@ import gleam/result
 import simplifile
 import sqlight
 
-const db_file = "gpac.db"
-
 pub type BackendError {
   EnvoyError
   SimplifileError(simplifile.FileError)
   SqlightError(sqlight.Error)
   InvalidGradeString
+  NotInitialised
 }
 
 pub type Grade {
@@ -35,24 +36,73 @@ pub type Grade {
   U
 }
 
+fn config_dir_path() -> Result(String, BackendError) {
+  envoy.get("HOME")
+  |> result.map(fn(d) { d <> "/.config/gpac" })
+  |> result.map_error(fn(_) { EnvoyError })
+}
+
+fn db_filepath() -> Result(String, BackendError) {
+  use config_dir <- result.try(config_dir_path())
+  let db_file = "gpac.db"
+
+  Ok(config_dir <> "/" <> db_file)
+}
+
+fn has_config_dir() -> Result(Bool, BackendError) {
+  use config_dir <- result.try(config_dir_path())
+
+  simplifile.is_directory(config_dir)
+  |> result.map_error(fn(e) { SimplifileError(e) })
+}
+
+fn has_db_file() -> Result(Bool, BackendError) {
+  use db_filepath <- result.try(db_filepath())
+
+  simplifile.is_file(db_filepath)
+  |> result.map_error(fn(e) { SimplifileError(e) })
+}
+
+fn is_initialised() -> Result(Bool, BackendError) {
+  use has_config_dir <- result.try(has_config_dir())
+  use has_db_file <- result.try(has_db_file())
+
+  Ok(has_config_dir && has_db_file)
+}
+
 pub fn initialise() -> Result(Nil, BackendError) {
-  use config_dir <- result.try(
-    envoy.get("HOME")
-    |> result.map(fn(d) { d <> "/.config/gpac" })
-    |> result.map_error(fn(_) { EnvoyError }),
-  )
+  use has_config_dir <- result.try(has_config_dir())
+  use config_dir <- result.try(config_dir_path())
+
+  use _ <- result.try(fn() {
+    case has_config_dir {
+      True ->
+        simplifile.delete(config_dir)
+        |> result.map_error(fn(e) { SimplifileError(e) })
+      False -> Ok(Nil)
+    }
+  }())
 
   use _ <- result.try(
-    simplifile.is_directory(config_dir)
-    |> result.map_error(fn(e) { SimplifileError(e) })
-    |> result.try(fn(is_dir) {
-      case is_dir {
-        False ->
-          simplifile.create_directory(config_dir)
-          |> result.map_error(fn(e) { SimplifileError(e) })
-        _ -> Ok(Nil)
-      }
-    }),
+    simplifile.create_directory(config_dir)
+    |> result.map_error(fn(e) { SimplifileError(e) }),
+  )
+
+  use has_db_file <- result.try(has_db_file())
+  use db_filepath <- result.try(db_filepath())
+
+  use _ <- result.try(fn() {
+    case has_db_file {
+      True ->
+        simplifile.delete(db_filepath)
+        |> result.map_error(fn(e) { SimplifileError(e) })
+      False -> Ok(Nil)
+    }
+  }())
+
+  use conn <- result.try(
+    sqlight.open(db_filepath)
+    |> result.map_error(fn(e) { SqlightError(e) }),
   )
 
   let create_table_stmt =
@@ -61,11 +111,6 @@ pub fn initialise() -> Result(Nil, BackendError) {
     units INTEGER NOT NULL,
     grade TEXT NOT NULL
   );"
-
-  use conn <- result.try(
-    sqlight.open(config_dir <> "/" <> db_file)
-    |> result.map_error(fn(e) { SqlightError(e) }),
-  )
 
   use _ <- result.try(
     sqlight.exec(create_table_stmt, conn)
@@ -129,7 +174,37 @@ fn grade_string_to_grade(grade_str: String) -> Result(Grade, BackendError) {
   }
 }
 
-pub fn add_module(code: String, units: Int, grade: Grade) {
-  todo
-  // let insert_stmt = []
-}
+// pub fn add_module(
+//   code: String,
+//   units: Int,
+//   grade: Grade,
+// ) -> Result(Nil, BackendError) {
+//   use is_init <- result.try(is_initialised())
+//   use _ <- result.try(fn() {
+//     case is_init {
+//       False -> Error(NotInitialised)
+//       True -> Ok(Nil)
+//     }
+//   }())
+//   use db_filepath <- result.try(db_filepath())
+//   use conn <- result.try(
+//     sqlight.open(db_filepath)
+//     |> result.map_error(fn(e) { SqlightError(e) }),
+//   )
+//
+//   let insert_stmt =
+//     [
+//       [i.string(code), i.int(units), grade_to_string(grade) |> i.string]
+//       |> i.row,
+//     ]
+//     |> i.from_values(table_name: "modules", columns: ["code", "units", "grade"])
+//     |> i.to_query
+//     |> sqlite_dialect.write_query_to_prepared_statement
+//     |> cake.get_sql
+//
+//   use _ <- result.try(
+//     sqlight.exec(insert_stmt, conn)
+//     |> result.map_error(fn(e) { SqlightError(e) }),
+//   )
+//   Ok(Nil)
+// }
