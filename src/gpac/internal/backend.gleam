@@ -235,3 +235,30 @@ pub fn list_modules() -> Result(List(Module), BackendError) {
   )
   Ok(modules)
 }
+
+pub fn delete_module(module_code: String) -> Result(Nil, BackendError) {
+  use is_init <- result.try(is_initialised())
+  use _ <- result.try(fn() {
+    case is_init {
+      False -> Error(NotInitialised)
+      True -> Ok(Nil)
+    }
+  }())
+  use db_filepath <- result.try(db_filepath())
+  use conn <- result.try(
+    sqlight.open(db_filepath)
+    |> result.map_error(fn(e) { SqlightError(e) }),
+  )
+
+  let sql =
+    "DELETE FROM modules
+     WHERE code = ?;"
+
+  let args = [sqlight.text(module_code)]
+
+  use _ <- result.try(
+    sqlight.query(sql, conn, args, decode.dynamic)
+    |> result.map_error(fn(e) { SqlightError(e) }),
+  )
+  Ok(Nil)
+}
