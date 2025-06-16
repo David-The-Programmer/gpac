@@ -1,17 +1,7 @@
-// import cake/delete as d
-import cake
-import cake/param
-import cake/dialect/sqlite_dialect
-import cake/insert as i
-
-// import cake/select as s
-// import cake/where as w
 import envoy
-
-// import gleam/decode/dynamic
 import gleam/dynamic/decode
-import gleam/result
 import gleam/list
+import gleam/result
 import simplifile
 import sqlight
 
@@ -37,6 +27,10 @@ pub type Grade {
   F
   S
   U
+}
+
+pub type Module {
+  Module(code: String, units: Int, grade: Grade)
 }
 
 fn config_dir_path() -> Result(String, BackendError) {
@@ -177,21 +171,11 @@ fn grade_string_to_grade(grade_str: String) -> Result(Grade, BackendError) {
   }
 }
 
-pub fn cake_param_to_sqlight_value(param: param.Param) -> sqlight.Value {
-  case param {
-    param.BoolParam(v) -> sqlight.bool(v)
-    param.FloatParam(v) -> sqlight.float(v)
-    param.IntParam(v) -> sqlight.int(v)
-    param.StringParam(v) -> sqlight.text(v)
-    param.NullParam -> sqlight.null()
-  }
+fn module_to_sqlight_values(module: Module) -> List(sqlight.Value) {
+  todo
 }
 
-pub fn add_module(
-  code: String,
-  units: Int,
-  grade: Grade,
-) -> Result(Nil, BackendError) {
+pub fn add_module(module: Module) -> Result(Nil, BackendError) {
   use is_init <- result.try(is_initialised())
   use _ <- result.try(fn() {
     case is_init {
@@ -205,21 +189,51 @@ pub fn add_module(
     |> result.map_error(fn(e) { SqlightError(e) }),
   )
 
-  let prepared_stmt =
-    [
-      [i.string(code), i.int(units), grade_to_string(grade) |> i.string]
-      |> i.row,
-    ]
-    |> i.from_values(table_name: "modules", columns: ["code", "units", "grade"])
-    |> i.to_query
-    |> sqlite_dialect.write_query_to_prepared_statement
+  let prepared_stmt_sql =
+    "INSERT INTO modules (\"code\", \"units\", \"grade\")
+   VALUES (?, ?, ?);"
 
-  let sql = prepared_stmt |> cake.get_sql
-  let args = prepared_stmt |> cake.get_params |> list.map(cake_param_to_sqlight_value)
+  let args = [
+    sqlight.text(module.code),
+    sqlight.int(module.units),
+    sqlight.text(grade_to_string(module.grade)),
+  ]
 
   use _ <- result.try(
-    sqlight.query(sql, conn, args, decode.dynamic)
+    sqlight.query(prepared_stmt_sql, conn, args, decode.dynamic)
     |> result.map_error(fn(e) { SqlightError(e) }),
   )
   Ok(Nil)
+}
+
+pub fn list_modules() -> Result(List(Module), BackendError) {
+  todo
+  // use is_init <- result.try(is_initialised())
+  // use _ <- result.try(fn() {
+  //   case is_init {
+  //     False -> Error(NotInitialised)
+  //     True -> Ok(Nil)
+  //   }
+  // }())
+  // use db_filepath <- result.try(db_filepath())
+  // use conn <- result.try(
+  //   sqlight.open(db_filepath)
+  //   |> result.map_error(fn(e) { SqlightError(e) }),
+  // )
+  //
+  // let prepared_stmt_sql =
+  //   "INSERT INTO modules (\"code\", \"units\", \"grade\")
+  //  VALUES (?, ?, ?);"
+  //
+  // let args = [
+  //   sqlight.string(module.code),
+  //   sqlight.int(module.units),
+  //   sqlight.string(grade_to_string(module.grade)),
+  // ]
+  //
+  // use _ <- result.try(
+  //   sqlight.query(sql, conn, args, decode.dynamic)
+  //   |> result.map_error(fn(e) { SqlightError(e) }),
+  // )
+  // Ok(Nil)
 }
