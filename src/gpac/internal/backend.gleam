@@ -179,7 +179,9 @@ pub fn add_module(module: Module) -> Result(Nil, BackendError) {
     sqlight.query(prepared_stmt_sql, conn, args, decode.dynamic)
     |> result.map_error(fn(e) { SqlightError(e) }),
   )
-  Ok(Nil)
+
+  sqlight.close(conn)
+  |> result.map_error(fn(e) { SqlightError(e) })
 }
 
 pub fn list_modules() -> Result(List(Module), BackendError) {
@@ -233,6 +235,10 @@ pub fn list_modules() -> Result(List(Module), BackendError) {
     sqlight.query(sql, conn, args, module_decoder)
     |> result.map_error(fn(e) { SqlightError(e) }),
   )
+
+  sqlight.close(conn)
+  |> result.map_error(fn(e) { SqlightError(e) })
+
   Ok(modules)
 }
 
@@ -260,5 +266,7 @@ pub fn delete_module(module_code: String) -> Result(Nil, BackendError) {
     sqlight.query(sql, conn, args, decode.dynamic)
     |> result.map_error(fn(e) { SqlightError(e) }),
   )
-  Ok(Nil)
+
+  sqlight.close(conn)
+  |> result.map_error(fn(e) { SqlightError(e) })
 }
