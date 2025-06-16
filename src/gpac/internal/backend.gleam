@@ -1,5 +1,6 @@
 import envoy
 import gleam/dynamic/decode
+import gleam/int
 import gleam/list
 import gleam/result
 import simplifile
@@ -117,22 +118,6 @@ pub fn initialise() -> Result(Nil, BackendError) {
   |> result.map_error(fn(e) { SqlightError(e) })
 }
 
-fn grade_to_grade_point(grade: Grade) -> Float {
-  case grade {
-    APlus -> 5.0
-    A -> 5.0
-    AMinus -> 4.5
-    BPlus -> 4.0
-    B -> 3.5
-    BMinus -> 3.0
-    CPlus -> 2.5
-    C -> 2.0
-    DPlus -> 1.5
-    D -> 1.0
-    _ -> 0.0
-  }
-}
-
 fn grade_to_string(grade: Grade) -> String {
   case grade {
     APlus -> "A+"
@@ -242,7 +227,7 @@ pub fn list_modules() -> Result(List(Module), BackendError) {
   Ok(modules)
 }
 
-pub fn delete_module(module_code: String) -> Result(Nil, BackendError) {
+pub fn remove_module(module_code: String) -> Result(Nil, BackendError) {
   use is_init <- result.try(is_initialised())
   use _ <- result.try(fn() {
     case is_init {
@@ -269,4 +254,43 @@ pub fn delete_module(module_code: String) -> Result(Nil, BackendError) {
 
   sqlight.close(conn)
   |> result.map_error(fn(e) { SqlightError(e) })
+}
+
+fn grade_to_grade_point(grade: Grade) -> Float {
+  case grade {
+    APlus -> 5.0
+    A -> 5.0
+    AMinus -> 4.5
+    BPlus -> 4.0
+    B -> 3.5
+    BMinus -> 3.0
+    CPlus -> 2.5
+    C -> 2.0
+    DPlus -> 1.5
+    D -> 1.0
+    _ -> 0.0
+  }
+}
+
+fn calculate_gpa(modules: List(Module)) -> Float {
+  let sum_gradepoint_units_product =
+    modules
+    |> list.filter(fn(module) { module.grade != S && module.grade != U })
+    |> list.fold(0.0, fn(acc, module) {
+      let grade_point = grade_to_grade_point(module.grade)
+      acc +. { grade_point *. int.to_float(module.units) }
+    })
+
+  let total_units =
+    modules
+    |> list.filter(fn(module) { module.grade != S && module.grade != U })
+    |> list.fold(0, fn(acc, module) { acc + module.units })
+    |> int.to_float
+
+  sum_gradepoint_units_product /. total_units
+}
+
+pub fn gpa() -> Result(Float, BackendError) {
+  use modules <- result.try(list_modules())
+  Ok(calculate_gpa(modules))
 }
