@@ -9,7 +9,6 @@ pub type BackendError {
   EnvoyError
   SimplifileError(simplifile.FileError)
   SqlightError(sqlight.Error)
-  InvalidGradeString
   NotInitialised
 }
 
@@ -152,29 +151,6 @@ fn grade_to_string(grade: Grade) -> String {
   }
 }
 
-fn grade_string_to_grade(grade_str: String) -> Result(Grade, BackendError) {
-  case grade_str {
-    "A+" -> Ok(APlus)
-    "A" -> Ok(A)
-    "A-" -> Ok(AMinus)
-    "B+" -> Ok(BPlus)
-    "B" -> Ok(B)
-    "B-" -> Ok(BMinus)
-    "C+" -> Ok(CPlus)
-    "C" -> Ok(C)
-    "D+" -> Ok(DPlus)
-    "D" -> Ok(D)
-    "F" -> Ok(F)
-    "S" -> Ok(S)
-    "U" -> Ok(U)
-    _ -> Error(InvalidGradeString)
-  }
-}
-
-fn module_to_sqlight_values(module: Module) -> List(sqlight.Value) {
-  todo
-}
-
 pub fn add_module(module: Module) -> Result(Nil, BackendError) {
   use is_init <- result.try(is_initialised())
   use _ <- result.try(fn() {
@@ -207,33 +183,55 @@ pub fn add_module(module: Module) -> Result(Nil, BackendError) {
 }
 
 pub fn list_modules() -> Result(List(Module), BackendError) {
-  todo
-  // use is_init <- result.try(is_initialised())
-  // use _ <- result.try(fn() {
-  //   case is_init {
-  //     False -> Error(NotInitialised)
-  //     True -> Ok(Nil)
-  //   }
-  // }())
-  // use db_filepath <- result.try(db_filepath())
-  // use conn <- result.try(
-  //   sqlight.open(db_filepath)
-  //   |> result.map_error(fn(e) { SqlightError(e) }),
-  // )
-  //
-  // let prepared_stmt_sql =
-  //   "INSERT INTO modules (\"code\", \"units\", \"grade\")
-  //  VALUES (?, ?, ?);"
-  //
-  // let args = [
-  //   sqlight.string(module.code),
-  //   sqlight.int(module.units),
-  //   sqlight.string(grade_to_string(module.grade)),
-  // ]
-  //
-  // use _ <- result.try(
-  //   sqlight.query(sql, conn, args, decode.dynamic)
-  //   |> result.map_error(fn(e) { SqlightError(e) }),
-  // )
-  // Ok(Nil)
+  use is_init <- result.try(is_initialised())
+  use _ <- result.try(fn() {
+    case is_init {
+      False -> Error(NotInitialised)
+      True -> Ok(Nil)
+    }
+  }())
+  use db_filepath <- result.try(db_filepath())
+  use conn <- result.try(
+    sqlight.open(db_filepath)
+    |> result.map_error(fn(e) { SqlightError(e) }),
+  )
+
+  let sql =
+    "SELECT code, units, grade
+     FROM modules;"
+
+  let args = []
+
+  let module_grade_decoder = {
+    use module_grade_string <- decode.then(decode.string)
+    case module_grade_string {
+      "A+" -> decode.success(APlus)
+      "A" -> decode.success(A)
+      "A-" -> decode.success(AMinus)
+      "B+" -> decode.success(BPlus)
+      "B" -> decode.success(B)
+      "B-" -> decode.success(BMinus)
+      "C+" -> decode.success(CPlus)
+      "C" -> decode.success(C)
+      "D+" -> decode.success(DPlus)
+      "D" -> decode.success(D)
+      "F" -> decode.success(F)
+      "S" -> decode.success(S)
+      "U" -> decode.success(U)
+      _ -> decode.failure(U, "module_grade")
+    }
+  }
+
+  let module_decoder = {
+    use code <- decode.field(0, decode.string)
+    use units <- decode.field(1, decode.int)
+    use grade <- decode.field(2, module_grade_decoder)
+    decode.success(Module(code: code, units: units, grade: grade))
+  }
+
+  use modules <- result.try(
+    sqlight.query(sql, conn, args, module_decoder)
+    |> result.map_error(fn(e) { SqlightError(e) }),
+  )
+  Ok(modules)
 }
