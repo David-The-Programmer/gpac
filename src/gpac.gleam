@@ -1,7 +1,7 @@
-import gpac/internal/backend
-import gpac/internal/frontend
-import glint
 import argv
+import glint
+import gpac/internal/frontend
+// import gpac/internal/backend
 
 pub fn main() -> Nil {
   // echo backend.initialise()
@@ -18,6 +18,7 @@ pub fn main() -> Nil {
   |> glint.with_name("gpac")
   |> glint.pretty_help(glint.default_pretty_help())
   |> glint.add(at: [], do: frontend.gpac())
+  |> glint.add(at: ["init"], do: frontend.init())
   |> glint.run(argv.load().arguments)
   Nil
 }
