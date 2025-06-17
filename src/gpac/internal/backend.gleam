@@ -1,15 +1,15 @@
 import envoy
 import gleam/dynamic/decode
 import gleam/int
+import gleam/json
 import gleam/list
 import gleam/result
 import simplifile
-import sqlight
 
 pub type BackendError {
   EnvoyError
+  JSONDecodeError(json.DecodeError)
   SimplifileError(simplifile.FileError)
-  SqlightError(sqlight.Error)
   NotInitialised
 }
 
@@ -33,6 +33,10 @@ pub type Module {
   Module(code: String, units: Int, grade: Grade)
 }
 
+pub type Database {
+  Database(modules: List(Module))
+}
+
 fn config_dir_path() -> Result(String, BackendError) {
   envoy.get("HOME")
   |> result.map(fn(d) { d <> "/.config/gpac" })
@@ -41,7 +45,7 @@ fn config_dir_path() -> Result(String, BackendError) {
 
 fn db_filepath() -> Result(String, BackendError) {
   use config_dir <- result.try(config_dir_path())
-  let db_file = "gpac.db"
+  let db_file = "gpac_db.json"
 
   Ok(config_dir <> "/" <> db_file)
 }
@@ -60,62 +64,11 @@ fn has_db_file() -> Result(Bool, BackendError) {
   |> result.map_error(fn(e) { SimplifileError(e) })
 }
 
-fn is_initialised() -> Result(Bool, BackendError) {
+pub fn is_initialised() -> Result(Bool, BackendError) {
   use has_config_dir <- result.try(has_config_dir())
   use has_db_file <- result.try(has_db_file())
 
   Ok(has_config_dir && has_db_file)
-}
-
-pub fn initialise() -> Result(Nil, BackendError) {
-  use has_config_dir <- result.try(has_config_dir())
-  use config_dir <- result.try(config_dir_path())
-
-  use _ <- result.try(fn() {
-    case has_config_dir {
-      True ->
-        simplifile.delete(config_dir)
-        |> result.map_error(fn(e) { SimplifileError(e) })
-      False -> Ok(Nil)
-    }
-  }())
-
-  use _ <- result.try(
-    simplifile.create_directory(config_dir)
-    |> result.map_error(fn(e) { SimplifileError(e) }),
-  )
-
-  use has_db_file <- result.try(has_db_file())
-  use db_filepath <- result.try(db_filepath())
-
-  use _ <- result.try(fn() {
-    case has_db_file {
-      True ->
-        simplifile.delete(db_filepath)
-        |> result.map_error(fn(e) { SimplifileError(e) })
-      False -> Ok(Nil)
-    }
-  }())
-
-  use conn <- result.try(
-    sqlight.open(db_filepath)
-    |> result.map_error(fn(e) { SqlightError(e) }),
-  )
-
-  let create_table_stmt =
-    "CREATE TABLE IF NOT EXISTS modules (
-    code TEXT PRIMARY KEY, 
-    units INTEGER NOT NULL,
-    grade TEXT NOT NULL
-  );"
-
-  use _ <- result.try(
-    sqlight.exec(create_table_stmt, conn)
-    |> result.map_error(fn(e) { SqlightError(e) }),
-  )
-
-  sqlight.close(conn)
-  |> result.map_error(fn(e) { SqlightError(e) })
 }
 
 fn grade_to_string(grade: Grade) -> String {
@@ -136,59 +89,25 @@ fn grade_to_string(grade: Grade) -> String {
   }
 }
 
-pub fn add_module(module: Module) -> Result(Nil, BackendError) {
-  use is_init <- result.try(is_initialised())
-  use _ <- result.try(fn() {
-    case is_init {
-      False -> Error(NotInitialised)
-      True -> Ok(Nil)
-    }
-  }())
-  use db_filepath <- result.try(db_filepath())
-  use conn <- result.try(
-    sqlight.open(db_filepath)
-    |> result.map_error(fn(e) { SqlightError(e) }),
-  )
-
-  let prepared_stmt_sql =
-    "INSERT INTO modules (\"code\", \"units\", \"grade\")
-   VALUES (?, ?, ?);"
-
-  let args = [
-    sqlight.text(module.code),
-    sqlight.int(module.units),
-    sqlight.text(grade_to_string(module.grade)),
-  ]
-
-  use _ <- result.try(
-    sqlight.query(prepared_stmt_sql, conn, args, decode.dynamic)
-    |> result.map_error(fn(e) { SqlightError(e) }),
-  )
-
-  sqlight.close(conn)
-  |> result.map_error(fn(e) { SqlightError(e) })
+fn module_to_json(module: Module) -> json.Json {
+  json.object([
+    #("code", json.string(module.code)),
+    #("units", json.int(module.units)),
+    #("grades", json.string(module.grade |> grade_to_string)),
+  ])
 }
 
-pub fn list_modules() -> Result(List(Module), BackendError) {
-  use is_init <- result.try(is_initialised())
-  use _ <- result.try(fn() {
-    case is_init {
-      False -> Error(NotInitialised)
-      True -> Ok(Nil)
-    }
-  }())
-  use db_filepath <- result.try(db_filepath())
-  use conn <- result.try(
-    sqlight.open(db_filepath)
-    |> result.map_error(fn(e) { SqlightError(e) }),
-  )
+fn db_to_json(db: Database) -> json.Json {
+  json.object([#("modules", json.array(db.modules, module_to_json))])
+}
 
-  let sql =
-    "SELECT code, units, grade
-     FROM modules;"
+fn write_db_to_file(filepath: String, db: Database) -> Result(Nil, BackendError) {
+  let db_json_str = db_to_json(db) |> json.to_string
+  simplifile.write(filepath, db_json_str)
+  |> result.map_error(fn(e) { SimplifileError(e) })
+}
 
-  let args = []
-
+fn db_from_json(db_json: String) -> Result(Database, json.DecodeError) {
   let module_grade_decoder = {
     use module_grade_string <- decode.then(decode.string)
     case module_grade_string {
@@ -210,21 +129,143 @@ pub fn list_modules() -> Result(List(Module), BackendError) {
   }
 
   let module_decoder = {
-    use code <- decode.field(0, decode.string)
-    use units <- decode.field(1, decode.int)
-    use grade <- decode.field(2, module_grade_decoder)
+    use code <- decode.field("code", decode.string)
+    use units <- decode.field("units", decode.int)
+    use grade <- decode.field("grade", module_grade_decoder)
     decode.success(Module(code: code, units: units, grade: grade))
   }
 
-  use modules <- result.try(
-    sqlight.query(sql, conn, args, module_decoder)
-    |> result.map_error(fn(e) { SqlightError(e) }),
+  let db_decoder = {
+    use modules <- decode.field("modules", decode.list(module_decoder))
+    decode.success(Database(modules: modules))
+  }
+
+  json.parse(db_json, db_decoder)
+}
+
+fn read_db_from_file(filepath: String) -> Result(Database, BackendError) {
+  use db_json <- result.try(
+    simplifile.read(filepath)
+    |> result.map_error(fn(e) { SimplifileError(e) }),
+  )
+  db_from_json(db_json) |> result.map_error(fn(e) { JSONDecodeError(e) })
+}
+
+pub fn initialise() -> Result(Nil, BackendError) {
+  use has_config_dir <- result.try(has_config_dir())
+  use config_dir <- result.try(config_dir_path())
+
+  use _ <- result.try(fn() {
+    case has_config_dir {
+      True ->
+        simplifile.delete(config_dir)
+        |> result.map_error(fn(e) { SimplifileError(e) })
+      False -> Ok(Nil)
+    }
+  }())
+
+  use _ <- result.try(
+    simplifile.create_directory(config_dir)
+    |> result.map_error(fn(e) { SimplifileError(e) }),
   )
 
-  sqlight.close(conn)
-  |> result.map_error(fn(e) { SqlightError(e) })
+  use db_filepath <- result.try(db_filepath())
+  write_db_to_file(db_filepath, Database([]))
+}
 
-  Ok(modules)
+pub fn add_module(module: Module) -> Result(Nil, BackendError) {
+  use is_init <- result.try(is_initialised())
+  use _ <- result.try(fn() {
+    case is_init {
+      False -> Error(NotInitialised)
+      True -> Ok(Nil)
+    }
+  }())
+  use db_filepath <- result.try(db_filepath())
+  todo
+  // use conn <- result.try(
+  //   sqlight.open(db_filepath)
+  //   |> result.map_error(fn(e) { SqlightError(e) }),
+  // )
+  //
+  // let prepared_stmt_sql =
+  //   "INSERT INTO modules (\"code\", \"units\", \"grade\")
+  //  VALUES (?, ?, ?);"
+  //
+  // let args = [
+  //   sqlight.text(module.code),
+  //   sqlight.int(module.units),
+  //   sqlight.text(grade_to_string(module.grade)),
+  // ]
+  //
+  // use _ <- result.try(
+  //   sqlight.query(prepared_stmt_sql, conn, args, decode.dynamic)
+  //   |> result.map_error(fn(e) { SqlightError(e) }),
+  // )
+  //
+  // sqlight.close(conn)
+  // |> result.map_error(fn(e) { SqlightError(e) })
+}
+
+pub fn list_modules() -> Result(List(Module), BackendError) {
+  use is_init <- result.try(is_initialised())
+  use _ <- result.try(fn() {
+    case is_init {
+      False -> Error(NotInitialised)
+      True -> Ok(Nil)
+    }
+  }())
+  use db_filepath <- result.try(db_filepath())
+  todo
+  // use conn <- result.try(
+  //   sqlight.open(db_filepath)
+  //   |> result.map_error(fn(e) { SqlightError(e) }),
+  // )
+  //
+  // let sql =
+  //   "SELECT code, units, grade
+  //    FROM modules;"
+  //
+  // let args = []
+  //
+  // let module_grade_decoder = {
+  //   use module_grade_string <- decode.then(decode.string)
+  //   case module_grade_string {
+  //     "A+" -> decode.success(APlus)
+  //     "A" -> decode.success(A)
+  //     "A-" -> decode.success(AMinus)
+  //     "B+" -> decode.success(BPlus)
+  //     "B" -> decode.success(B)
+  //     "B-" -> decode.success(BMinus)
+  //     "C+" -> decode.success(CPlus)
+  //     "C" -> decode.success(C)
+  //     "D+" -> decode.success(DPlus)
+  //     "D" -> decode.success(D)
+  //     "F" -> decode.success(F)
+  //     "S" -> decode.success(S)
+  //     "U" -> decode.success(U)
+  //     _ -> decode.failure(U, "module_grade")
+  //   }
+  // }
+  //
+  // let module_decoder = {
+  //   use code <- decode.field(0, decode.string)
+  //   use units <- decode.field(1, decode.int)
+  //   use grade <- decode.field(2, module_grade_decoder)
+  //   decode.success(Module(code: code, units: units, grade: grade))
+  // }
+  //
+  // use modules <- result.try(
+  //   sqlight.query(sql, conn, args, module_decoder)
+  //   |> result.map_error(fn(e) { SqlightError(e) }),
+  // )
+  //
+  // use _ <- result.try(
+  //   sqlight.close(conn)
+  //   |> result.map_error(fn(e) { SqlightError(e) }),
+  // )
+  //
+  // Ok(modules)
 }
 
 pub fn remove_module(module_code: String) -> Result(Nil, BackendError) {
@@ -236,24 +277,25 @@ pub fn remove_module(module_code: String) -> Result(Nil, BackendError) {
     }
   }())
   use db_filepath <- result.try(db_filepath())
-  use conn <- result.try(
-    sqlight.open(db_filepath)
-    |> result.map_error(fn(e) { SqlightError(e) }),
-  )
-
-  let sql =
-    "DELETE FROM modules
-     WHERE code = ?;"
-
-  let args = [sqlight.text(module_code)]
-
-  use _ <- result.try(
-    sqlight.query(sql, conn, args, decode.dynamic)
-    |> result.map_error(fn(e) { SqlightError(e) }),
-  )
-
-  sqlight.close(conn)
-  |> result.map_error(fn(e) { SqlightError(e) })
+  todo
+  // use conn <- result.try(
+  //   sqlight.open(db_filepath)
+  //   |> result.map_error(fn(e) { SqlightError(e) }),
+  // )
+  //
+  // let sql =
+  //   "DELETE FROM modules
+  //    WHERE code = ?;"
+  //
+  // let args = [sqlight.text(module_code)]
+  //
+  // use _ <- result.try(
+  //   sqlight.query(sql, conn, args, decode.dynamic)
+  //   |> result.map_error(fn(e) { SqlightError(e) }),
+  // )
+  //
+  // sqlight.close(conn)
+  // |> result.map_error(fn(e) { SqlightError(e) })
 }
 
 fn grade_to_grade_point(grade: Grade) -> Float {
