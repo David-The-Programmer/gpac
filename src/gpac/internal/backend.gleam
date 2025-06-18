@@ -93,7 +93,7 @@ fn module_to_json(module: Module) -> json.Json {
   json.object([
     #("code", json.string(module.code)),
     #("units", json.int(module.units)),
-    #("grades", json.string(module.grade |> grade_to_string)),
+    #("grade", json.string(module.grade |> grade_to_string)),
   ])
 }
 
@@ -107,31 +107,31 @@ fn write_db_to_file(filepath: String, db: Database) -> Result(Nil, BackendError)
   |> result.map_error(fn(e) { SimplifileError(e) })
 }
 
-fn db_from_json(db_json: String) -> Result(Database, json.DecodeError) {
-  let module_grade_decoder = {
-    use module_grade_string <- decode.then(decode.string)
-    case module_grade_string {
-      "A+" -> decode.success(APlus)
-      "A" -> decode.success(A)
-      "A-" -> decode.success(AMinus)
-      "B+" -> decode.success(BPlus)
-      "B" -> decode.success(B)
-      "B-" -> decode.success(BMinus)
-      "C+" -> decode.success(CPlus)
-      "C" -> decode.success(C)
-      "D+" -> decode.success(DPlus)
-      "D" -> decode.success(D)
-      "F" -> decode.success(F)
-      "S" -> decode.success(S)
-      "U" -> decode.success(U)
-      _ -> decode.failure(U, "module_grade")
-    }
+pub fn module_grade_decoder() -> decode.Decoder(Grade) {
+  use module_grade_string <- decode.then(decode.string)
+  case module_grade_string {
+    "A+" -> decode.success(APlus)
+    "A" -> decode.success(A)
+    "A-" -> decode.success(AMinus)
+    "B+" -> decode.success(BPlus)
+    "B" -> decode.success(B)
+    "B-" -> decode.success(BMinus)
+    "C+" -> decode.success(CPlus)
+    "C" -> decode.success(C)
+    "D+" -> decode.success(DPlus)
+    "D" -> decode.success(D)
+    "F" -> decode.success(F)
+    "S" -> decode.success(S)
+    "U" -> decode.success(U)
+    _ -> decode.failure(U, "module_grade")
   }
+}
 
+fn db_from_json(db_json: String) -> Result(Database, json.DecodeError) {
   let module_decoder = {
     use code <- decode.field("code", decode.string)
     use units <- decode.field("units", decode.int)
-    use grade <- decode.field("grade", module_grade_decoder)
+    use grade <- decode.field("grade", module_grade_decoder())
     decode.success(Module(code: code, units: units, grade: grade))
   }
 
@@ -182,29 +182,9 @@ pub fn add_module(module: Module) -> Result(Nil, BackendError) {
     }
   }())
   use db_filepath <- result.try(db_filepath())
-  todo
-  // use conn <- result.try(
-  //   sqlight.open(db_filepath)
-  //   |> result.map_error(fn(e) { SqlightError(e) }),
-  // )
-  //
-  // let prepared_stmt_sql =
-  //   "INSERT INTO modules (\"code\", \"units\", \"grade\")
-  //  VALUES (?, ?, ?);"
-  //
-  // let args = [
-  //   sqlight.text(module.code),
-  //   sqlight.int(module.units),
-  //   sqlight.text(grade_to_string(module.grade)),
-  // ]
-  //
-  // use _ <- result.try(
-  //   sqlight.query(prepared_stmt_sql, conn, args, decode.dynamic)
-  //   |> result.map_error(fn(e) { SqlightError(e) }),
-  // )
-  //
-  // sqlight.close(conn)
-  // |> result.map_error(fn(e) { SqlightError(e) })
+  use db <- result.try(read_db_from_file(db_filepath))
+  let new_db = Database(modules: [module, ..db.modules] |> list.reverse)
+  write_db_to_file(db_filepath, new_db)
 }
 
 pub fn list_modules() -> Result(List(Module), BackendError) {

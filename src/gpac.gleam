@@ -1,6 +1,7 @@
 import argv
 import glint
 import gpac/internal/frontend
+
 // import gpac/internal/backend
 
 pub fn main() -> Nil {
@@ -19,6 +20,7 @@ pub fn main() -> Nil {
   |> glint.pretty_help(glint.default_pretty_help())
   |> glint.add(at: [], do: frontend.gpac())
   |> glint.add(at: ["init"], do: frontend.init())
+  |> glint.add(at: ["add"], do: frontend.add())
   |> glint.run(argv.load().arguments)
   Nil
 }
