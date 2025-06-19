@@ -4,6 +4,7 @@ import gleam/int
 import gleam/io
 import gleam/list
 import gleam/result
+import gleam/string
 import glint
 import gpac/internal/backend
 
@@ -92,8 +93,8 @@ fn add_cmd_computation(unnamed_args: List(String)) -> Result(Nil, FrontendError)
       InvalidArgType(
         "Expected '<module_units>' to be a number, 0, 1, 2, 4, etc', got '"
         <> units
-        <> "' instead." <>
-        "
+        <> "' instead."
+        <> "
         Run 'gpac add --help' for more info on the '<module_units>' argument",
       )
     }),
@@ -106,8 +107,8 @@ fn add_cmd_computation(unnamed_args: List(String)) -> Result(Nil, FrontendError)
         "Expected '<module_grade>' to be of a specific value: 'A+', 'B-', 'C', etc, but got"
           <> "'"
           <> grade
-        <> "' instead." <>
-        "
+          <> "' instead."
+          <> "
         Run 'gpac add --help' for more info on the '<module_grade>' argument",
         e,
       )
@@ -148,5 +149,146 @@ pub fn add() -> glint.Command(Nil) {
     Error(DecodeError(msg, _)) -> io.println(msg)
     Error(CommandBackendError(msg, _)) -> io.println(msg)
     _ -> io.println("failed to add module, unexpected failure.")
+  }
+}
+
+fn tail_recursive_text_wrap(
+  text: String,
+  max_length: Int,
+  wrapped_text: String,
+) -> String {
+  case text {
+    "" -> wrapped_text
+    _ -> {
+      let len_diff = max_length - string.length(text)
+      case len_diff >= 0 {
+        True -> tail_recursive_text_wrap("", max_length, wrapped_text <> text)
+        False ->
+          tail_recursive_text_wrap(
+            string.drop_start(text, max_length),
+            max_length,
+            wrapped_text
+              <> string.drop_end(text, len_diff |> int.absolute_value)
+              <> "\n",
+          )
+      }
+    }
+  }
+}
+
+pub fn text_wrap(text: String, max_length: Int) -> String {
+  let assert True = max_length != 0
+  tail_recursive_text_wrap(text, max_length, "")
+}
+
+fn format_table_body(
+  table_body: List(List(String)),
+  table_width: Int,
+) -> List(List(String)) {
+  table_body
+  |> list.map(fn(row) {
+    row
+    |> list.map(fn(col) {
+      text_wrap(
+        col,
+        { table_width - { list.length(row) + 1 } } / list.length(row),
+      )
+    })
+  })
+  |> list.flat_map(fn(row) {
+    let assert Ok(max_new_rows) =
+      row
+      |> list.map(fn(col) {
+        col
+        |> string.split("\n")
+        |> list.length
+      })
+      |> list.max(int.compare)
+
+    list.repeat(row, max_new_rows)
+    |> list.index_map(fn(row, i) {
+      row
+      |> list.map(fn(col) {
+        col
+        |> string.split("\n")
+        |> list.index_map(fn(v, j) {
+          case i == j {
+            True -> v
+            False -> ""
+          }
+        })
+        |> string.join("")
+      })
+    })
+  })
+  |> list.map(fn(row) {
+    row
+    |> list.map(fn(col) {
+      string.pad_end(
+        col,
+        { table_width - { list.length(row) + 1 } } / list.length(row),
+        " ",
+      )
+    })
+  })
+}
+
+fn print_row(row: List(String)) -> Nil {
+  case row {
+    [] -> io.print("\n")
+    [col, ..rest] -> {
+      io.print(col <> "|")
+      print_row(rest)
+    }
+  }
+}
+
+fn print_table_body(body: List(List(String))) -> Nil {
+  case body {
+    [] -> Nil
+    [row, ..rest] -> {
+      io.print("|")
+      print_row(row)
+      print_table_body(rest)
+    }
+  }
+}
+
+fn pretty_print_table(
+  body: List(List(String)),
+  headers: List(String),
+  width: Int,
+) -> Nil {
+  io.println("+" <> string.repeat("-", width - 2) <> "+")
+
+  [headers]
+  |> format_table_body(width)
+  |> print_table_body
+  io.println(string.repeat("-", width))
+
+  body
+  |> format_table_body(width)
+  |> print_table_body
+
+  io.println("+" <> string.repeat("-", width - 2) <> "+")
+}
+
+fn pretty_print_mods(modules: List(backend.Module)) -> Nil {
+  modules
+  |> list.map(fn(mod) {
+    [mod.code, int.to_string(mod.units), backend.grade_to_string(mod.grade)]
+  })
+  |> pretty_print_table(["Module Code", "Units", "Grade"], 79)
+}
+
+pub fn list() -> glint.Command(Nil) {
+  let help_text = "Lists all modules stored in gpac."
+  use <- glint.command_help(help_text)
+  use <- glint.unnamed_args(glint.EqArgs(0))
+  use _, _, _ <- glint.command()
+
+  case backend.list_modules() {
+    Ok(modules) -> pretty_print_mods(modules)
+    Error(_) -> io.println("failed to retrieve modules for listing.")
   }
 }

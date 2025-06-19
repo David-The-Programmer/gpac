@@ -71,7 +71,7 @@ pub fn is_initialised() -> Result(Bool, BackendError) {
   Ok(has_config_dir && has_db_file)
 }
 
-fn grade_to_string(grade: Grade) -> String {
+pub fn grade_to_string(grade: Grade) -> String {
   case grade {
     APlus -> "A+"
     A -> "A"
@@ -196,56 +196,8 @@ pub fn list_modules() -> Result(List(Module), BackendError) {
     }
   }())
   use db_filepath <- result.try(db_filepath())
-  todo
-  // use conn <- result.try(
-  //   sqlight.open(db_filepath)
-  //   |> result.map_error(fn(e) { SqlightError(e) }),
-  // )
-  //
-  // let sql =
-  //   "SELECT code, units, grade
-  //    FROM modules;"
-  //
-  // let args = []
-  //
-  // let module_grade_decoder = {
-  //   use module_grade_string <- decode.then(decode.string)
-  //   case module_grade_string {
-  //     "A+" -> decode.success(APlus)
-  //     "A" -> decode.success(A)
-  //     "A-" -> decode.success(AMinus)
-  //     "B+" -> decode.success(BPlus)
-  //     "B" -> decode.success(B)
-  //     "B-" -> decode.success(BMinus)
-  //     "C+" -> decode.success(CPlus)
-  //     "C" -> decode.success(C)
-  //     "D+" -> decode.success(DPlus)
-  //     "D" -> decode.success(D)
-  //     "F" -> decode.success(F)
-  //     "S" -> decode.success(S)
-  //     "U" -> decode.success(U)
-  //     _ -> decode.failure(U, "module_grade")
-  //   }
-  // }
-  //
-  // let module_decoder = {
-  //   use code <- decode.field(0, decode.string)
-  //   use units <- decode.field(1, decode.int)
-  //   use grade <- decode.field(2, module_grade_decoder)
-  //   decode.success(Module(code: code, units: units, grade: grade))
-  // }
-  //
-  // use modules <- result.try(
-  //   sqlight.query(sql, conn, args, module_decoder)
-  //   |> result.map_error(fn(e) { SqlightError(e) }),
-  // )
-  //
-  // use _ <- result.try(
-  //   sqlight.close(conn)
-  //   |> result.map_error(fn(e) { SqlightError(e) }),
-  // )
-  //
-  // Ok(modules)
+  use db <- result.try(read_db_from_file(db_filepath))
+  Ok(db.modules)
 }
 
 pub fn remove_module(module_code: String) -> Result(Nil, BackendError) {

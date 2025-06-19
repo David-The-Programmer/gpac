@@ -1,12 +1,18 @@
+import gleam/io
 import gleeunit
-
-// import gpac/internal/sqlite
+import gpac/internal/frontend
 
 pub fn main() -> Nil {
   gleeunit.main()
 }
+
 // gleeunit test functions end in `_test`
 
+pub fn text_wrap_test() {
+  assert frontend.text_wrap("hello", 1) == "h\ne\nl\nl\no"
+  assert frontend.text_wrap("hello", 3) == "hel\nlo"
+  assert frontend.text_wrap("hello", 5) == "hello"
+}
 // pub fn gen_stmt_columns_test() {
 //   assert sqlite.gen_stmt_columns(["test1", "test2"]) == "(\"test1\", \"test2\")"
 // }

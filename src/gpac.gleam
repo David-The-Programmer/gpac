@@ -21,6 +21,7 @@ pub fn main() -> Nil {
   |> glint.add(at: [], do: frontend.gpac())
   |> glint.add(at: ["init"], do: frontend.init())
   |> glint.add(at: ["add"], do: frontend.add())
+  |> glint.add(at: ["list"], do: frontend.list())
   |> glint.run(argv.load().arguments)
   Nil
 }
