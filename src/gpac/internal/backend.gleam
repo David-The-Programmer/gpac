@@ -11,6 +11,7 @@ pub type BackendError {
   JSONDecodeError(json.DecodeError)
   SimplifileError(simplifile.FileError)
   NotInitialised
+  ModuleNotFound
 }
 
 pub type Grade {
@@ -209,25 +210,19 @@ pub fn remove_module(module_code: String) -> Result(Nil, BackendError) {
     }
   }())
   use db_filepath <- result.try(db_filepath())
-  todo
-  // use conn <- result.try(
-  //   sqlight.open(db_filepath)
-  //   |> result.map_error(fn(e) { SqlightError(e) }),
-  // )
-  //
-  // let sql =
-  //   "DELETE FROM modules
-  //    WHERE code = ?;"
-  //
-  // let args = [sqlight.text(module_code)]
-  //
-  // use _ <- result.try(
-  //   sqlight.query(sql, conn, args, decode.dynamic)
-  //   |> result.map_error(fn(e) { SqlightError(e) }),
-  // )
-  //
-  // sqlight.close(conn)
-  // |> result.map_error(fn(e) { SqlightError(e) })
+  use db <- result.try(read_db_from_file(db_filepath))
+
+  use _ <- result.try(
+    list.find(db.modules, fn(module) { module.code == module_code })
+    |> result.map_error(fn(_) { ModuleNotFound }),
+  )
+
+  let new_db =
+    Database(
+      modules: db.modules
+      |> list.filter(fn(module) { module.code != module_code }),
+    )
+  write_db_to_file(db_filepath, new_db)
 }
 
 fn grade_to_grade_point(grade: Grade) -> Float {

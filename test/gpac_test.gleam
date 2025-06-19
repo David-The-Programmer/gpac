@@ -11,4 +11,3 @@ pub fn main() -> Nil {
 pub fn split_by_size_test() {
   assert frontend.split_by_size("hello", 3) == ["hel", "lo"]
 }
-

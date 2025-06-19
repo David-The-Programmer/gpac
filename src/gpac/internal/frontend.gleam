@@ -1,11 +1,11 @@
 import gleam/dynamic
 import gleam/dynamic/decode
+import gleam/float
 import gleam/int
 import gleam/io
 import gleam/list
 import gleam/result
 import gleam/string
-import gleam/float
 import glint
 import gpac/internal/backend
 
@@ -280,5 +280,45 @@ pub fn list() -> glint.Command(Nil) {
   case backend.list_modules() {
     Ok(modules) -> pretty_print_mods(modules)
     Error(_) -> io.println("failed to retrieve modules for listing.")
+  }
+}
+
+pub fn remove() -> glint.Command(Nil) {
+  let help_text =
+    "Deletes all module info of given module code.
+
+
+  Usage: gpac remove <module_code>
+
+  "
+  use <- glint.command_help(help_text)
+  use <- glint.unnamed_args(glint.EqArgs(1))
+  use _, unnamed_args, _ <- glint.command()
+  let assert [module_code] = unnamed_args
+  let remove_result =
+    backend.remove_module(module_code)
+    |> result.map_error(fn(e) {
+      case e {
+        backend.ModuleNotFound -> {
+          let err_msg =
+            "failed to remove module of module code: "
+            <> module_code
+            <> ", module not found."
+          CommandBackendError(err_msg, e)
+        }
+        _ -> {
+          let err_msg =
+            "failed to remove module of module code: " <> module_code
+          CommandBackendError(err_msg, e)
+        }
+      }
+    })
+  case remove_result {
+    Ok(Nil) ->
+      io.println(
+        "successfully remove module info of module code: " <> module_code,
+      )
+    Error(CommandBackendError(msg, _)) -> io.println(msg)
+    _ -> io.println("failed to remove module.")
   }
 }
