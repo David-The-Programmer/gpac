@@ -5,6 +5,7 @@ import gleam/io
 import gleam/list
 import gleam/result
 import gleam/string
+import gleam/float
 import glint
 import gpac/internal/backend
 
@@ -152,33 +153,24 @@ pub fn add() -> glint.Command(Nil) {
   }
 }
 
-fn tail_recursive_text_wrap(
-  text: String,
-  max_length: Int,
-  wrapped_text: String,
-) -> String {
-  case text {
-    "" -> wrapped_text
+fn split_by_size_inner(
+  str: String,
+  size: Int,
+  acc: List(String),
+) -> List(String) {
+  case str {
+    "" -> list.reverse(acc)
     _ -> {
-      let len_diff = max_length - string.length(text)
-      case len_diff >= 0 {
-        True -> tail_recursive_text_wrap("", max_length, wrapped_text <> text)
-        False ->
-          tail_recursive_text_wrap(
-            string.drop_start(text, max_length),
-            max_length,
-            wrapped_text
-              <> string.drop_end(text, len_diff |> int.absolute_value)
-              <> "\n",
-          )
-      }
+      let str_len = string.length(str)
+      let head = string.slice(str, 0, size)
+      let rest = string.slice(str, size, str_len - size)
+      split_by_size_inner(rest, size, [head, ..acc])
     }
   }
 }
 
-pub fn text_wrap(text: String, max_length: Int) -> String {
-  let assert True = max_length != 0
-  tail_recursive_text_wrap(text, max_length, "")
+pub fn split_by_size(str: String, size: Int) -> List(String) {
+  split_by_size_inner(str, size, [])
 }
 
 fn format_table_body(
@@ -186,19 +178,16 @@ fn format_table_body(
   table_width: Int,
 ) -> List(List(String)) {
   table_body
-  |> list.map(fn(row) {
-    let col_width =
-      { table_width - { list.length(row) + 1 } } / list.length(row)
-    row
-    |> list.map(fn(col) { text_wrap(col, col_width) })
-  })
   |> list.flat_map(fn(row) {
+    let num_cols = list.length(row)
+    let col_width = { table_width - { num_cols + 1 } } / num_cols
     let assert Ok(max_new_rows) =
       row
       |> list.map(fn(col) {
-        col
-        |> string.split("\n")
-        |> list.length
+        let col_value_len = string.length(col)
+        { int.to_float(col_value_len) /. int.to_float(col_width) }
+        |> float.ceiling
+        |> float.truncate
       })
       |> list.max(int.compare)
 
@@ -207,7 +196,7 @@ fn format_table_body(
       row
       |> list.map(fn(col) {
         col
-        |> string.split("\n")
+        |> split_by_size(col_width)
         |> list.index_map(fn(v, j) {
           case i == j {
             True -> v
@@ -274,11 +263,12 @@ fn pretty_print_table(
 }
 
 fn pretty_print_mods(modules: List(backend.Module)) -> Nil {
+  let table_width = 100
   modules
   |> list.map(fn(mod) {
     [mod.code, int.to_string(mod.units), backend.grade_to_string(mod.grade)]
   })
-  |> pretty_print_table(["Module Code", "Units", "Grade"], 100)
+  |> pretty_print_table(["Module Code", "Units", "Grade"], table_width)
 }
 
 pub fn list() -> glint.Command(Nil) {
