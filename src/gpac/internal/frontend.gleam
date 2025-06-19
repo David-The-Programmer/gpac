@@ -187,13 +187,10 @@ fn format_table_body(
 ) -> List(List(String)) {
   table_body
   |> list.map(fn(row) {
+    let col_width =
+      { table_width - { list.length(row) + 1 } } / list.length(row)
     row
-    |> list.map(fn(col) {
-      text_wrap(
-        col,
-        { table_width - { list.length(row) + 1 } } / list.length(row),
-      )
-    })
+    |> list.map(fn(col) { text_wrap(col, col_width) })
   })
   |> list.flat_map(fn(row) {
     let assert Ok(max_new_rows) =
@@ -222,13 +219,16 @@ fn format_table_body(
     })
   })
   |> list.map(fn(row) {
+    let col_width =
+      { table_width - { list.length(row) + 1 } } / list.length(row)
     row
-    |> list.map(fn(col) {
-      string.pad_end(
-        col,
-        { table_width - { list.length(row) + 1 } } / list.length(row),
-        " ",
-      )
+    |> list.index_map(fn(col, i) {
+      let num_cols = list.length(row)
+      let diff = table_width - { { num_cols * col_width } + { num_cols + 1 } }
+      case i == { num_cols - 1 } {
+        True -> string.pad_end(col, col_width + diff, " ")
+        False -> string.pad_end(col, col_width, " ")
+      }
     })
   })
 }
@@ -278,7 +278,7 @@ fn pretty_print_mods(modules: List(backend.Module)) -> Nil {
   |> list.map(fn(mod) {
     [mod.code, int.to_string(mod.units), backend.grade_to_string(mod.grade)]
   })
-  |> pretty_print_table(["Module Code", "Units", "Grade"], 79)
+  |> pretty_print_table(["Module Code", "Units", "Grade"], 100)
 }
 
 pub fn list() -> glint.Command(Nil) {
