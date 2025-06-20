@@ -76,18 +76,7 @@ pub fn init() -> glint.Command(Nil) {
 }
 
 fn add_cmd_computation(unnamed_args: List(String)) -> Result(Nil, FrontendError) {
-  let validate_num_args = case unnamed_args {
-    [_, _, _] -> Ok(unnamed_args)
-    _ ->
-      Error(InvalidNumberArgs(
-        "Expected 3 arguments, got"
-        <> list.length(unnamed_args) |> int.to_string
-        <> " arguments instead. 
-        Run 'gpac add --help' for more info on the arguments.",
-      ))
-  }
-  use args <- result.try(validate_num_args)
-  let assert [code, units, grade] = args
+  let assert [code, units, grade] = unnamed_args
   use module_units <- result.try(
     int.base_parse(units, 10)
     |> result.map_error(fn(_) {
@@ -320,5 +309,18 @@ pub fn remove() -> glint.Command(Nil) {
       )
     Error(CommandBackendError(msg, _)) -> io.println(msg)
     _ -> io.println("failed to remove module.")
+  }
+}
+
+pub fn gpa() -> glint.Command(Nil) {
+  let help_text = "Calculates the cumulative GPA of all modules added to gpac"
+  use <- glint.command_help(help_text)
+  use <- glint.unnamed_args(glint.EqArgs(0))
+  use _, _, _ <- glint.command()
+
+  case backend.gpa() {
+    Ok(cumulative_gpa) ->
+      io.println("Cumulative GPA: " <> float.to_string(cumulative_gpa))
+    Error(_) -> io.println("failed to calculated GPA")
   }
 }
