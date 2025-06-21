@@ -118,7 +118,7 @@ pub fn add() -> glint.Command(Nil) {
 
   let code = module_code(named_args)
   let units_str = module_units(named_args)
-  let grade_str = module_units(named_args)
+  let grade_str = module_grade(named_args)
 
   let arg_validation = {
     use units <- result.try(validate_units_arg(units_str))
@@ -296,12 +296,7 @@ pub fn list() -> glint.Command(Nil) {
 
 pub fn remove() -> glint.Command(Nil) {
   let help_text =
-    "Deletes all module info of given module code.
-
-
-  Usage: gpac remove <module_code>
-
-  "
+    "Deletes all module info of given module code."
   use <- glint.command_help(help_text)
   use <- glint.unnamed_args(glint.EqArgs(0))
   use module_code <- glint.named_arg("code")
@@ -329,7 +324,7 @@ pub fn remove() -> glint.Command(Nil) {
 }
 
 pub fn gpa() -> glint.Command(Nil) {
-  let help_text = "Calculates the cumulative GPA of all modules added to gpac"
+  let help_text = "Calculates the cumulative GPA of all modules added to gpac."
   use <- glint.command_help(help_text)
   use <- glint.unnamed_args(glint.EqArgs(0))
   use _, _, _ <- glint.command()
