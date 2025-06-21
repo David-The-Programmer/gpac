@@ -7,10 +7,18 @@ import gleam/result
 import simplifile
 
 pub type BackendError {
-  EnvoyError
-  JSONDecodeError(json.DecodeError)
-  SimplifileError(simplifile.FileError)
+  HomeDirNotFound
+  DBDirCheckFail(simplifile.FileError)
+  DBFileCheckFail(simplifile.FileError)
+  InitCheckFail(BackendError)
   NotInitialised
+  AlreadyInitialised
+  ReadFromDBFileFail(simplifile.FileError)
+  WriteToDBFileFail(simplifile.FileError)
+  DecodeDBFail(json.DecodeError)
+  RemoveDBDirFail(simplifile.FileError)
+  CreateDBDirFail(simplifile.FileError)
+  CreateDBFileFail(simplifile.FileError)
   ModuleNotFound
 }
 
@@ -41,7 +49,7 @@ pub type Database {
 fn config_dir_path() -> Result(String, BackendError) {
   envoy.get("HOME")
   |> result.map(fn(d) { d <> "/.config/gpac" })
-  |> result.map_error(fn(_) { EnvoyError })
+  |> result.map_error(fn(_) { HomeDirNotFound })
 }
 
 fn db_filepath() -> Result(String, BackendError) {
@@ -55,19 +63,25 @@ fn has_config_dir() -> Result(Bool, BackendError) {
   use config_dir <- result.try(config_dir_path())
 
   simplifile.is_directory(config_dir)
-  |> result.map_error(fn(e) { SimplifileError(e) })
+  |> result.map_error(fn(e) { DBDirCheckFail(e) })
 }
 
 fn has_db_file() -> Result(Bool, BackendError) {
   use db_filepath <- result.try(db_filepath())
 
   simplifile.is_file(db_filepath)
-  |> result.map_error(fn(e) { SimplifileError(e) })
+  |> result.map_error(fn(e) { DBFileCheckFail(e) })
 }
 
 pub fn is_initialised() -> Result(Bool, BackendError) {
-  use has_config_dir <- result.try(has_config_dir())
-  use has_db_file <- result.try(has_db_file())
+  use has_config_dir <- result.try(
+    has_config_dir()
+    |> result.map_error(fn(e) { InitCheckFail(e) }),
+  )
+  use has_db_file <- result.try(
+    has_db_file()
+    |> result.map_error(fn(e) { InitCheckFail(e) }),
+  )
 
   Ok(has_config_dir && has_db_file)
 }
@@ -105,7 +119,7 @@ fn db_to_json(db: Database) -> json.Json {
 fn write_db_to_file(filepath: String, db: Database) -> Result(Nil, BackendError) {
   let db_json_str = db_to_json(db) |> json.to_string
   simplifile.write(filepath, db_json_str)
-  |> result.map_error(fn(e) { SimplifileError(e) })
+  |> result.map_error(fn(e) { WriteToDBFileFail(e) })
 }
 
 pub fn module_grade_decoder() -> decode.Decoder(Grade) {
@@ -147,12 +161,27 @@ fn db_from_json(db_json: String) -> Result(Database, json.DecodeError) {
 fn read_db_from_file(filepath: String) -> Result(Database, BackendError) {
   use db_json <- result.try(
     simplifile.read(filepath)
-    |> result.map_error(fn(e) { SimplifileError(e) }),
+    |> result.map_error(fn(e) { ReadFromDBFileFail(e) }),
   )
-  db_from_json(db_json) |> result.map_error(fn(e) { JSONDecodeError(e) })
+  db_from_json(db_json) |> result.map_error(fn(e) { DecodeDBFail(e) })
 }
 
-pub fn initialise() -> Result(Nil, BackendError) {
+fn init_checks(force_init: Bool) -> Result(Nil, BackendError) {
+  case force_init {
+    True -> Ok(Nil)
+    False -> {
+      use is_init <- result.try(is_initialised())
+      case is_init {
+        True -> Error(AlreadyInitialised)
+        _ -> Ok(Nil)
+      }
+    }
+  }
+}
+
+pub fn initialise(force_init: Bool) -> Result(Nil, BackendError) {
+  use _ <- result.try(init_checks(force_init))
+
   use has_config_dir <- result.try(has_config_dir())
   use config_dir <- result.try(config_dir_path())
 
@@ -160,14 +189,14 @@ pub fn initialise() -> Result(Nil, BackendError) {
     case has_config_dir {
       True ->
         simplifile.delete(config_dir)
-        |> result.map_error(fn(e) { SimplifileError(e) })
+        |> result.map_error(fn(e) { RemoveDBDirFail(e) })
       False -> Ok(Nil)
     }
   }())
 
   use _ <- result.try(
     simplifile.create_directory(config_dir)
-    |> result.map_error(fn(e) { SimplifileError(e) }),
+    |> result.map_error(fn(e) { CreateDBDirFail(e) }),
   )
 
   use db_filepath <- result.try(db_filepath())

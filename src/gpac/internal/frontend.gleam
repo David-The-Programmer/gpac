@@ -1,3 +1,4 @@
+import gleam/dict
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/float
@@ -10,13 +11,7 @@ import glint
 import gpac/internal/backend
 
 type FrontendError {
-  InvalidArgType(message: String)
-  InvalidArgValue(message: String)
-  InvalidNumberArgs(message: String)
-  InvalidFlagType(message: String)
-  InvalidFlagValue(message: String)
-  DecodeError(message: String, err: List(decode.DecodeError))
-  CommandBackendError(message: String, err: backend.BackendError)
+  ArgValidationError(arg_name: String, issue: String)
 }
 
 pub fn gpac() -> glint.Command(Nil) {
@@ -46,99 +41,118 @@ pub fn init() -> glint.Command(Nil) {
   use <- glint.unnamed_args(glint.EqArgs(0))
   use force <- glint.flag(force_flag())
   use _, _, flags <- glint.command()
-  let assert Ok(force_value) = force(flags)
+  let assert Ok(force_init) = force(flags)
 
-  let #(init_called, result) = case force_value {
-    True -> {
-      io.println("gpac will re-initialise forcefully...")
-      #(True, backend.initialise())
+  case backend.initialise(force_init) {
+    Ok(Nil) -> io.println("gpac successfully initialised!")
+    Error(backend.InitCheckFail(backend.DBDirCheckFail(_))) -> {
+      io.println(
+        "gpac failed to initialise: could not check if db directory exists",
+      )
     }
-    False ->
-      case backend.is_initialised() {
-        Ok(False) -> {
-          io.println("initialising gpac...")
-          #(True, backend.initialise())
-        }
-        Ok(True) -> {
-          io.println(
-            "gpac is already initialised, use --force to override, but proceed with caution, run 'gpac init --help to find out more.",
-          )
-          #(False, Ok(Nil))
-        }
-        err -> #(False, result.map(err, fn(_) { Nil }))
-      }
-  }
-  case init_called, result {
-    True, Ok(Nil) -> io.println("gpac successfully initialised!")
-    False, Ok(Nil) -> io.println("")
-    _, Error(_) -> io.println("gpac failed to initialise, exiting...")
+    Error(backend.InitCheckFail(backend.DBDirCheckFail(_))) -> {
+      io.println("gpac failed to initialise: could not check if db file exists")
+    }
+    Error(backend.AlreadyInitialised) -> {
+      io.println(
+        "gpac is already initialised, use --force to override, but proceed with caution, run 'gpac init --help to find out more.",
+      )
+    }
+    Error(backend.RemoveDBDirFail(_)) -> {
+      io.println(
+        "gpac failed to initialise: failed to remove previous db directory",
+      )
+    }
+    Error(backend.CreateDBDirFail(_)) -> {
+      io.println("gpac failed to initialise: failed to create new db directory")
+    }
+    Error(backend.WriteToDBFileFail(_)) -> {
+      io.println("gpac failed to initialise: failed to create new db file")
+    }
+    _ -> io.println("gpac failed to initialise: unexpected error")
   }
 }
 
-fn add_cmd_computation(unnamed_args: List(String)) -> Result(Nil, FrontendError) {
-  let assert [code, units, grade] = unnamed_args
-  use module_units <- result.try(
-    int.base_parse(units, 10)
-    |> result.map_error(fn(_) {
-      InvalidArgType(
-        "Expected '<module_units>' to be a number, 0, 1, 2, 4, etc', got '"
-        <> units
-        <> "' instead."
-        <> "
-        Run 'gpac add --help' for more info on the '<module_units>' argument",
-      )
-    }),
-  )
+fn validate_units_arg(units_arg: String) -> Result(Int, FrontendError) {
+  int.parse(units_arg)
+  |> result.map_error(fn(_) {
+    ArgValidationError("units", "'units' given is not a number")
+  })
+  |> result.try(fn(units) {
+    case units >= 0 {
+      True -> Ok(units)
+      False ->
+        Error(ArgValidationError(
+          "units",
+          "'units' given is not greater than or equal to 0",
+        ))
+    }
+  })
+}
+
+fn validate_grade_arg(grade_arg: String) -> Result(backend.Grade, FrontendError) {
   let decoder = backend.module_grade_decoder()
-  use module_grade <- result.try(
-    decode.run(dynamic.string(grade), decoder)
-    |> result.map_error(fn(e) {
-      DecodeError(
-        "Expected '<module_grade>' to be of a specific value: 'A+', 'B-', 'C', etc, but got"
-          <> "'"
-          <> grade
-          <> "' instead."
-          <> "
-        Run 'gpac add --help' for more info on the '<module_grade>' argument",
-        e,
-      )
-    }),
-  )
-  use _ <- result.try(
-    backend.add_module(backend.Module(code, module_units, module_grade))
-    |> result.map_error(fn(e) {
-      CommandBackendError(
-        "failed to add module, gpac internal backend failed.",
-        e,
-      )
-    }),
-  )
-  Ok(Nil)
+  decode.run(dynamic.string(grade_arg), decoder)
+  |> result.map_error(fn(_) {
+    ArgValidationError(
+      "grade",
+      "'grade' given is not one of the following values: A+, A, A-, B+, B, B-, C+, C, D+, D, F, S, U",
+    )
+  })
 }
 
 pub fn add() -> glint.Command(Nil) {
   let help_text =
-    "Add module code, module units and module grade info to gpac.
+    "Add module code, units and grade info to gpac.
 
-
-  Usage: gpac add <module_code> <module_units> <module_grade> 
-
-
-  <module_grade> can only be 1 of the following values:
+  <grade> can only be 1 of the following values:
 
   A+, A, A-, B+, B, B-, C+, C, D+, D, F, S, U
   "
   use <- glint.command_help(help_text)
-  use <- glint.unnamed_args(glint.EqArgs(3))
-  use _, unnamed_args, _ <- glint.command()
-  case add_cmd_computation(unnamed_args) {
-    Ok(_) -> io.println("successfully added module!")
-    Error(InvalidNumberArgs(msg)) -> io.println(msg)
-    Error(InvalidArgType(msg)) -> io.println(msg)
-    Error(InvalidArgValue(msg)) -> io.println(msg)
-    Error(DecodeError(msg, _)) -> io.println(msg)
-    Error(CommandBackendError(msg, _)) -> io.println(msg)
-    _ -> io.println("failed to add module, unexpected failure.")
+  use <- glint.unnamed_args(glint.EqArgs(0))
+  use module_code <- glint.named_arg("code")
+  use module_units <- glint.named_arg("units")
+  use module_grade <- glint.named_arg("grade")
+  use named_args, _, _ <- glint.command()
+
+  let code = module_code(named_args)
+  let units_str = module_units(named_args)
+  let grade_str = module_units(named_args)
+
+  let arg_validation = {
+    use units <- result.try(validate_units_arg(units_str))
+    use grade <- result.try(validate_grade_arg(grade_str))
+    Ok(#(units, grade))
+  }
+
+  case arg_validation {
+    Error(ArgValidationError(arg_name, issue)) -> {
+      io.println("'" <> arg_name <> "' error: " <> issue)
+      io.println(
+        "Run 'gpac add --help' for more info on the"
+        <> "'"
+        <> arg_name
+        <> "' argument",
+      )
+    }
+    Ok(#(units, grade)) -> {
+      let result = backend.add_module(backend.Module(code, units, grade))
+      case result {
+        Ok(Nil) -> io.println("successfully added module to gpac!")
+        Error(backend.NotInitialised) ->
+          io.println(
+            "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
+          )
+        Error(backend.ReadFromDBFileFail(_)) ->
+          io.println("gpac failed to add module: could not read from db file.")
+        Error(backend.WriteToDBFileFail(_)) ->
+          io.println("gpac failed to add module: could not write to db file.")
+        _ -> {
+          io.println("gpac failed to add module: unexpected error.")
+        }
+      }
+    }
   }
 }
 
@@ -268,7 +282,15 @@ pub fn list() -> glint.Command(Nil) {
 
   case backend.list_modules() {
     Ok(modules) -> pretty_print_mods(modules)
-    Error(_) -> io.println("failed to retrieve modules for listing.")
+    Error(backend.NotInitialised) -> {
+      io.println(
+        "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
+      )
+    }
+    Error(backend.ReadFromDBFileFail(_)) -> {
+      io.println("gpac failed to list modules: could not read from db file.")
+    }
+    _ -> io.println("gpac failed to list modules: unexpected error.")
   }
 }
 
@@ -281,34 +303,28 @@ pub fn remove() -> glint.Command(Nil) {
 
   "
   use <- glint.command_help(help_text)
-  use <- glint.unnamed_args(glint.EqArgs(1))
-  use _, unnamed_args, _ <- glint.command()
-  let assert [module_code] = unnamed_args
-  let remove_result =
-    backend.remove_module(module_code)
-    |> result.map_error(fn(e) {
-      case e {
-        backend.ModuleNotFound -> {
-          let err_msg =
-            "failed to remove module of module code: "
-            <> module_code
-            <> ", module not found."
-          CommandBackendError(err_msg, e)
-        }
-        _ -> {
-          let err_msg =
-            "failed to remove module of module code: " <> module_code
-          CommandBackendError(err_msg, e)
-        }
-      }
-    })
-  case remove_result {
-    Ok(Nil) ->
+  use <- glint.unnamed_args(glint.EqArgs(0))
+  use module_code <- glint.named_arg("code")
+  use named_args, _, _ <- glint.command()
+  let code = module_code(named_args)
+
+  case backend.remove_module(code) {
+    Ok(Nil) -> io.println("successfully removed module")
+    Error(backend.NotInitialised) -> {
       io.println(
-        "successfully remove module info of module code: " <> module_code,
+        "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
       )
-    Error(CommandBackendError(msg, _)) -> io.println(msg)
-    _ -> io.println("failed to remove module.")
+    }
+    Error(backend.ReadFromDBFileFail(_)) -> {
+      io.println("gpac failed to remove module: could not read from db file.")
+    }
+    Error(backend.ModuleNotFound) -> {
+      io.println("gpac failed to remove module: module not found.")
+    }
+    Error(backend.WriteToDBFileFail(_)) -> {
+      io.println("gpac failed to remove module: could not write to db file.")
+    }
+    _ -> io.println("gpac failed to remove module: unexpected error.")
   }
 }
 
@@ -321,6 +337,14 @@ pub fn gpa() -> glint.Command(Nil) {
   case backend.gpa() {
     Ok(cumulative_gpa) ->
       io.println("Cumulative GPA: " <> float.to_string(cumulative_gpa))
-    Error(_) -> io.println("failed to calculated GPA")
+    Error(backend.NotInitialised) -> {
+      io.println(
+        "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
+      )
+    }
+    Error(backend.ReadFromDBFileFail(_)) -> {
+      io.println("gpac failed to calculate GPA: could not read from db file.")
+    }
+    _ -> io.println("gpac failed to calculate GPA: unexpected error.")
   }
 }
