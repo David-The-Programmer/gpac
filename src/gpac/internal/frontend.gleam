@@ -4,11 +4,11 @@ import gleam/float
 import gleam/int
 import gleam/io
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
-import gleam/option.{Some, None}
-import gpac/internal/backend
 import glint
+import gpac/internal/backend
 
 type FrontendError {
   ArgValidationError(arg_name: String, issue: String)
@@ -45,30 +45,25 @@ pub fn init() -> glint.Command(Nil) {
 
   case backend.initialise(force_init) {
     Ok(Nil) -> io.println("gpac successfully initialised!")
-    Error(backend.InitCheckFail(backend.DBDirCheckFail(_))) -> {
+    Error(backend.InitCheckFail(backend.DBDirCheckFail(_))) ->
       io.println(
         "gpac failed to initialise: could not check if db directory exists",
       )
-    }
     Error(backend.InitCheckFail(backend.DBFileCheckFail(_))) -> {
       io.println("gpac failed to initialise: could not check if db file exists")
     }
-    Error(backend.AlreadyInitialised) -> {
+    Error(backend.AlreadyInitialised) ->
       io.println(
         "gpac is already initialised, use --force to override, but proceed with caution, run 'gpac init --help to find out more.",
       )
-    }
-    Error(backend.RemoveDBDirFail(_)) -> {
+    Error(backend.RemoveDBDirFail(_)) ->
       io.println(
         "gpac failed to initialise: failed to remove previous db directory",
       )
-    }
-    Error(backend.CreateDBDirFail(_)) -> {
+    Error(backend.CreateDBDirFail(_)) ->
       io.println("gpac failed to initialise: failed to create new db directory")
-    }
-    Error(backend.WriteToDBFileFail(_)) -> {
+    Error(backend.WriteToDBFileFail(_)) ->
       io.println("gpac failed to initialise: failed to create new db file")
-    }
     _ -> io.println("gpac failed to initialise: unexpected error")
   }
 }
@@ -148,9 +143,7 @@ pub fn add() -> glint.Command(Nil) {
           io.println("gpac failed to add module: could not read from db file.")
         Error(backend.WriteToDBFileFail(_)) ->
           io.println("gpac failed to add module: could not write to db file.")
-        _ -> {
-          io.println("gpac failed to add module: unexpected error.")
-        }
+        _ -> io.println("gpac failed to add module: unexpected error.")
       }
     }
   }
@@ -290,14 +283,12 @@ pub fn list() -> glint.Command(Nil) {
 
   case backend.list_modules() {
     Ok(modules) -> pretty_print_mods(modules)
-    Error(backend.NotInitialised) -> {
+    Error(backend.NotInitialised) ->
       io.println(
         "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
       )
-    }
-    Error(backend.ReadFromDBFileFail(_)) -> {
+    Error(backend.ReadFromDBFileFail(_)) ->
       io.println("gpac failed to list modules: could not read from db file.")
-    }
     _ -> io.println("gpac failed to list modules: unexpected error.")
   }
 }
@@ -317,15 +308,12 @@ pub fn remove() -> glint.Command(Nil) {
         "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
       )
     }
-    Error(backend.ReadFromDBFileFail(_)) -> {
+    Error(backend.ReadFromDBFileFail(_)) ->
       io.println("gpac failed to remove module: could not read from db file.")
-    }
-    Error(backend.ModuleNotFound) -> {
+    Error(backend.ModuleNotFound) ->
       io.println("gpac failed to remove module: module not found.")
-    }
-    Error(backend.WriteToDBFileFail(_)) -> {
+    Error(backend.WriteToDBFileFail(_)) ->
       io.println("gpac failed to remove module: could not write to db file.")
-    }
     _ -> io.println("gpac failed to remove module: unexpected error.")
   }
 }
@@ -355,14 +343,12 @@ pub fn gpa() -> glint.Command(Nil) {
         None -> io.println("")
       }
     }
-    Error(backend.NotInitialised) -> {
+    Error(backend.NotInitialised) ->
       io.println(
         "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
       )
-    }
-    Error(backend.ReadFromDBFileFail(_)) -> {
+    Error(backend.ReadFromDBFileFail(_)) ->
       io.println("gpac failed to calculate GPA: could not read from db file.")
-    }
     _ -> io.println("gpac failed to calculate GPA: unexpected error.")
   }
 }
