@@ -1,4 +1,3 @@
-import gleam/dict
 import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/float
@@ -7,8 +6,9 @@ import gleam/io
 import gleam/list
 import gleam/result
 import gleam/string
-import glint
+import gleam/option.{Some, None}
 import gpac/internal/backend
+import glint
 
 type FrontendError {
   ArgValidationError(arg_name: String, issue: String)
@@ -50,7 +50,7 @@ pub fn init() -> glint.Command(Nil) {
         "gpac failed to initialise: could not check if db directory exists",
       )
     }
-    Error(backend.InitCheckFail(backend.DBDirCheckFail(_))) -> {
+    Error(backend.InitCheckFail(backend.DBFileCheckFail(_))) -> {
       io.println("gpac failed to initialise: could not check if db file exists")
     }
     Error(backend.AlreadyInitialised) -> {
@@ -105,7 +105,7 @@ pub fn add() -> glint.Command(Nil) {
   let help_text =
     "Add module code, units and grade info to gpac.
 
-  <grade> can only be 1 of the following values:
+  Note: <grade> can only be 1 of the following values:
 
   A+, A, A-, B+, B, B-, C+, C, D+, D, F, S, U
   "
@@ -137,7 +137,7 @@ pub fn add() -> glint.Command(Nil) {
       )
     }
     Ok(#(units, grade)) -> {
-      let result = backend.add_module(backend.Module(code, units, grade))
+      let result = backend.add_module(backend.Module(code, units, grade, grade))
       case result {
         Ok(Nil) -> io.println("successfully added module to gpac!")
         Error(backend.NotInitialised) ->
@@ -269,9 +269,17 @@ fn pretty_print_mods(modules: List(backend.Module)) -> Nil {
   let table_width = 100
   modules
   |> list.map(fn(mod) {
-    [mod.code, int.to_string(mod.units), backend.grade_to_string(mod.grade)]
+    [
+      mod.code,
+      int.to_string(mod.units),
+      backend.grade_to_string(mod.grade),
+      backend.grade_to_string(mod.simulated_grade),
+    ]
   })
-  |> pretty_print_table(["Module Code", "Units", "Grade"], table_width)
+  |> pretty_print_table(
+    ["Module Code", "Units", "Grade", "Simulated Grade"],
+    table_width,
+  )
 }
 
 pub fn list() -> glint.Command(Nil) {
@@ -295,8 +303,7 @@ pub fn list() -> glint.Command(Nil) {
 }
 
 pub fn remove() -> glint.Command(Nil) {
-  let help_text =
-    "Deletes all module info of given module code."
+  let help_text = "Deletes all module info of given module code."
   use <- glint.command_help(help_text)
   use <- glint.unnamed_args(glint.EqArgs(0))
   use module_code <- glint.named_arg("code")
@@ -323,15 +330,31 @@ pub fn remove() -> glint.Command(Nil) {
   }
 }
 
+fn simulate_flag() -> glint.Flag(Bool) {
+  let help_text =
+    "Use the --include-simulated=true or --include-simulated flag to ask gpac to calculate and show the simulated grade"
+  glint.bool_flag("include-simulated")
+  |> glint.flag_default(False)
+  |> glint.flag_help(help_text)
+}
+
 pub fn gpa() -> glint.Command(Nil) {
   let help_text = "Calculates the cumulative GPA of all modules added to gpac."
   use <- glint.command_help(help_text)
   use <- glint.unnamed_args(glint.EqArgs(0))
-  use _, _, _ <- glint.command()
+  use simulate <- glint.flag(simulate_flag())
+  use _, _, flags <- glint.command()
+  let assert Ok(include_simulated) = simulate(flags)
 
-  case backend.gpa() {
-    Ok(cumulative_gpa) ->
-      io.println("Cumulative GPA: " <> float.to_string(cumulative_gpa))
+  case backend.gpa(include_simulated) {
+    Ok(#(gpa, simulated_gpa_option)) -> {
+      io.println("Actual GPA: " <> float.to_string(gpa))
+      case simulated_gpa_option {
+        Some(simulated_gpa) ->
+          io.println("Simulated GPA: " <> float.to_string(simulated_gpa))
+        None -> io.println("")
+      }
+    }
     Error(backend.NotInitialised) -> {
       io.println(
         "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
@@ -341,5 +364,73 @@ pub fn gpa() -> glint.Command(Nil) {
       io.println("gpac failed to calculate GPA: could not read from db file.")
     }
     _ -> io.println("gpac failed to calculate GPA: unexpected error.")
+  }
+}
+
+pub fn simulate() -> glint.Command(Nil) {
+  let help_text =
+    "Allows user to simulate grades for their modules, including S/U options.
+
+
+    Run 'gpac simulate <code> <grade>' to update the simulated grade of module with given module code. This simulated grade will be used to calculate the simulated GPA, i.e, GPA that uses the simulated grade (instead of actual grade) of each module.
+
+
+    Subsequently, run 'gpac gpa --include-simulated' to see the simulated GPA and actual GPA.
+
+
+  Note: <grade> can only be 1 of the following values:
+
+  A+, A, A-, B+, B, B-, C+, C, D+, D, F, S, U
+  "
+  use <- glint.command_help(help_text)
+  use <- glint.unnamed_args(glint.EqArgs(0))
+  use module_code <- glint.named_arg("code")
+  use module_grade <- glint.named_arg("grade")
+  use named_args, _, _ <- glint.command()
+
+  let code = module_code(named_args)
+  let grade_str = module_grade(named_args)
+
+  let arg_validation = {
+    use grade <- result.try(validate_grade_arg(grade_str))
+    Ok(#(code, grade))
+  }
+
+  case arg_validation {
+    Error(ArgValidationError(arg_name, issue)) -> {
+      io.println("'" <> arg_name <> "' error: " <> issue)
+      io.println(
+        "Run 'gpac simulate --help' for more info on the"
+        <> "'"
+        <> arg_name
+        <> "' argument",
+      )
+    }
+    Ok(#(code, grade)) -> {
+      let result = backend.simulate_module_grade(code, grade)
+      case result {
+        Ok(Nil) -> io.println("successfully updated simulated grade of module!")
+        Error(backend.NotInitialised) ->
+          io.println(
+            "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
+          )
+        Error(backend.ReadFromDBFileFail(_)) ->
+          io.println(
+            "gpac failed to update simulated grade of module: could not read from db file.",
+          )
+        Error(backend.ModuleNotFound) ->
+          io.println(
+            "gpac failed to update simulated grade of module: module not found.",
+          )
+        Error(backend.WriteToDBFileFail(_)) ->
+          io.println(
+            "gpac failed to update simulated grade of module: could not write to db file.",
+          )
+        _ ->
+          io.println(
+            "gpac failed to update simulated grade of module: unexpected error.",
+          )
+      }
+    }
   }
 }

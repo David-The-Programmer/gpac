@@ -12,6 +12,7 @@ pub fn main() -> Nil {
   |> glint.add(at: ["list"], do: frontend.list())
   |> glint.add(at: ["remove"], do: frontend.remove())
   |> glint.add(at: ["gpa"], do: frontend.gpa())
+  |> glint.add(at: ["simulate"], do: frontend.simulate())
   |> glint.run(argv.load().arguments)
   Nil
 }

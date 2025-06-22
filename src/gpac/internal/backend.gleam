@@ -3,6 +3,7 @@ import gleam/dynamic/decode
 import gleam/int
 import gleam/json
 import gleam/list
+import gleam/option.{type Option, Some, None}
 import gleam/result
 import simplifile
 
@@ -39,7 +40,7 @@ pub type Grade {
 }
 
 pub type Module {
-  Module(code: String, units: Int, grade: Grade)
+  Module(code: String, units: Int, grade: Grade, simulated_grade: Grade)
 }
 
 pub type Database {
@@ -109,6 +110,7 @@ fn module_to_json(module: Module) -> json.Json {
     #("code", json.string(module.code)),
     #("units", json.int(module.units)),
     #("grade", json.string(module.grade |> grade_to_string)),
+    #("simulated_grade", json.string(module.simulated_grade |> grade_to_string)),
   ])
 }
 
@@ -147,7 +149,16 @@ fn db_from_json(db_json: String) -> Result(Database, json.DecodeError) {
     use code <- decode.field("code", decode.string)
     use units <- decode.field("units", decode.int)
     use grade <- decode.field("grade", module_grade_decoder())
-    decode.success(Module(code: code, units: units, grade: grade))
+    use simulated_grade <- decode.field(
+      "simulated_grade",
+      module_grade_decoder(),
+    )
+    decode.success(Module(
+      code: code,
+      units: units,
+      grade: grade,
+      simulated_grade: simulated_grade,
+    ))
   }
 
   let db_decoder = {
@@ -213,7 +224,7 @@ pub fn add_module(module: Module) -> Result(Nil, BackendError) {
   }())
   use db_filepath <- result.try(db_filepath())
   use db <- result.try(read_db_from_file(db_filepath))
-  let new_db = Database(modules: [module, ..db.modules] |> list.reverse)
+  let new_db = Database(modules: [module, ..db.modules])
   write_db_to_file(db_filepath, new_db)
 }
 
@@ -270,25 +281,83 @@ fn grade_to_grade_point(grade: Grade) -> Float {
   }
 }
 
-fn calculate_gpa(modules: List(Module)) -> Float {
+fn calculate_gpa(grade_info: List(#(Int, Grade))) -> Float {
   let sum_gradepoint_units_product =
-    modules
-    |> list.filter(fn(module) { module.grade != S && module.grade != U })
-    |> list.fold(0.0, fn(acc, module) {
-      let grade_point = grade_to_grade_point(module.grade)
-      acc +. { grade_point *. int.to_float(module.units) }
+    grade_info
+    |> list.filter(fn(info) {
+      let #(_, grade) = info
+      grade != S && grade != U
+    })
+    |> list.fold(0.0, fn(acc, info) {
+      let #(units, grade) = info
+      let grade_point = grade_to_grade_point(grade)
+      acc +. { grade_point *. int.to_float(units) }
     })
 
   let total_units =
-    modules
-    |> list.filter(fn(module) { module.grade != S && module.grade != U })
-    |> list.fold(0, fn(acc, module) { acc + module.units })
+    grade_info
+    |> list.filter(fn(info) {
+      let #(_, grade) = info
+      grade != S && grade != U
+    })
+    |> list.fold(0, fn(acc, info) {
+      let #(units, _) = info
+      acc + units
+    })
     |> int.to_float
 
   sum_gradepoint_units_product /. total_units
 }
 
-pub fn gpa() -> Result(Float, BackendError) {
+pub fn gpa(
+  include_simulated: Bool,
+) -> Result(#(Float, Option(Float)), BackendError) {
   use modules <- result.try(list_modules())
-  Ok(calculate_gpa(modules))
+  let gpa =
+    modules
+    |> list.map(fn(module) { #(module.units, module.grade) })
+    |> calculate_gpa
+
+  case include_simulated {
+    False -> Ok(#(gpa, None))
+    True -> {
+      let simulated_gpa =
+        modules
+        |> list.map(fn(module) { #(module.units, module.simulated_grade) })
+        |> calculate_gpa
+      Ok(#(gpa, Some(simulated_gpa)))
+    }
+  }
+}
+
+pub fn simulate_module_grade(
+  module_code: String,
+  grade: Grade,
+) -> Result(Nil, BackendError) {
+  use is_init <- result.try(is_initialised())
+  use _ <- result.try(fn() {
+    case is_init {
+      False -> Error(NotInitialised)
+      True -> Ok(Nil)
+    }
+  }())
+  use db_filepath <- result.try(db_filepath())
+  use db <- result.try(read_db_from_file(db_filepath))
+
+  use module <- result.try(
+    list.find(db.modules, fn(module) { module.code == module_code })
+    |> result.map_error(fn(_) { ModuleNotFound }),
+  )
+  let new_module = Module(..module, simulated_grade: grade)
+  let new_modules =
+    db.modules
+    |> list.chunk(fn(mod) { mod.code == module_code })
+    |> list.flat_map(fn(chunk) {
+      case chunk == [module] {
+        True -> [new_module]
+        False -> chunk
+      }
+    })
+  let new_db = Database(modules: new_modules)
+  write_db_to_file(db_filepath, new_db)
 }
