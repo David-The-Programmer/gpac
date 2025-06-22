@@ -141,6 +141,10 @@ pub fn add() -> glint.Command(Nil) {
           )
         Error(backend.ReadFromDBFileFail(_)) ->
           io.println("gpac failed to add module: could not read from db file.")
+        Error(backend.ModuleAlreadyExists) ->
+          io.println(
+            "gpac failed to add module: module with same code already exists.",
+          )
         Error(backend.WriteToDBFileFail(_)) ->
           io.println("gpac failed to add module: could not write to db file.")
         _ -> io.println("gpac failed to add module: unexpected error.")

@@ -3,7 +3,7 @@ import gleam/dynamic/decode
 import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{type Option, Some, None}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import simplifile
 
@@ -21,6 +21,7 @@ pub type BackendError {
   CreateDBDirFail(simplifile.FileError)
   CreateDBFileFail(simplifile.FileError)
   ModuleNotFound
+  ModuleAlreadyExists
 }
 
 pub type Grade {
@@ -224,8 +225,13 @@ pub fn add_module(module: Module) -> Result(Nil, BackendError) {
   }())
   use db_filepath <- result.try(db_filepath())
   use db <- result.try(read_db_from_file(db_filepath))
-  let new_db = Database(modules: [module, ..db.modules])
-  write_db_to_file(db_filepath, new_db)
+  case list.find(db.modules, fn(mod) { mod.code == module.code }) {
+    Ok(_) -> Error(ModuleAlreadyExists)
+    Error(Nil) -> {
+      let new_db = Database(modules: [module, ..db.modules])
+      write_db_to_file(db_filepath, new_db)
+    }
+  }
 }
 
 pub fn list_modules() -> Result(List(Module), BackendError) {
