@@ -8,7 +8,9 @@ import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import glint
+import glint/constraint
 import gpac/internal/backend
+import snag
 
 type FrontendError {
   ArgValidationError(arg_name: String, issue: String)
@@ -18,6 +20,7 @@ pub fn gpac() -> glint.Command(Nil) {
   let help_text =
     "CLI tool to calculate GPA and simulate S/U options.
 
+
   Run 'gpac (SUBCOMMAND) --help' to get more info of each subcommand."
   use <- glint.command_help(help_text)
   use _, _, _ <- glint.command()
@@ -26,7 +29,7 @@ pub fn gpac() -> glint.Command(Nil) {
 
 fn force_flag() -> glint.Flag(Bool) {
   let help_text =
-    "Use the --force=true or --force flag to forcefully reinitialise gpac.
+    "Use the flag --force=true or --force to forcefully reinitialise gpac.
 
   This will wipe out all existing data, use this flag with caution."
 
@@ -91,7 +94,9 @@ fn validate_grade_arg(grade_arg: String) -> Result(backend.Grade, FrontendError)
   |> result.map_error(fn(_) {
     ArgValidationError(
       "grade",
-      "'grade' given is not one of the following values: A+, A, A-, B+, B, B-, C+, C, D+, D, F, S, U",
+      "'grade' given can only be one of the following values: 
+
+      A+, A, A-, B+, B, B-, C+, C, D+, D, F, S, U",
     )
   })
 }
@@ -100,7 +105,7 @@ pub fn add() -> glint.Command(Nil) {
   let help_text =
     "Add module code, units and grade info to gpac.
 
-  Note: <grade> can only be 1 of the following values:
+  Note: <grade> can only be one of the following values:
 
   A+, A, A-, B+, B, B-, C+, C, D+, D, F, S, U
   "
@@ -263,7 +268,7 @@ fn pretty_print_table(
 }
 
 fn pretty_print_mods(modules: List(backend.Module)) -> Nil {
-  let table_width = 100
+  let table_width = 80
   modules
   |> list.map(fn(mod) {
     [
@@ -324,7 +329,7 @@ pub fn remove() -> glint.Command(Nil) {
 
 fn simulate_flag() -> glint.Flag(Bool) {
   let help_text =
-    "Use the --include-simulated=true or --include-simulated flag to ask gpac to calculate and show the simulated grade"
+    "Use the flag --include-simulated=true or --include-simulated to ask gpac to calculate and show the simulated grade, by default the flag is set to 'false'"
   glint.bool_flag("include-simulated")
   |> glint.flag_default(False)
   |> glint.flag_help(help_text)
@@ -368,7 +373,7 @@ pub fn simulate() -> glint.Command(Nil) {
     Subsequently, run 'gpac gpa --include-simulated' to see the simulated GPA and actual GPA.
 
 
-  Note: <grade> can only be 1 of the following values:
+  Note: <grade> can only be one of the following values:
 
   A+, A, A-, B+, B, B-, C+, C, D+, D, F, S, U
   "
@@ -422,5 +427,88 @@ pub fn simulate() -> glint.Command(Nil) {
           )
       }
     }
+  }
+}
+
+fn update_units_flag() -> glint.Flag(Int) {
+  let help_text =
+    "Use the flag --units=<INT> to specify the number of units, 
+
+    <number> must be an integer greater than or equal to 0.
+    "
+  glint.int_flag("units")
+  |> glint.flag_help(help_text)
+  |> glint.flag_constraint(fn(units) {
+    case units < 0 {
+      True -> snag.error("must be greater than 0")
+      False -> Ok(units)
+    }
+  })
+  |> glint.flag_default(-1)
+}
+
+fn update_grade_flag() -> glint.Flag(String) {
+  let help_text =
+    "Use the flag --grade=<STRING> to specify the grade of the module,
+
+  Note: <STRING> can only be one of the following values:
+
+  A+, A, A-, B+, B, B-, C+, C, D+, D, F, S, U
+    "
+  glint.string_flag("grade")
+  |> glint.flag_help(help_text)
+  |> glint.flag_constraint(
+    constraint.one_of([
+      "A+", "A", "A-", "B+", "B", "B-", "C+", "C", "D+", "D", "F", "S", "U",
+    ]),
+  )
+  |> glint.flag_default("")
+}
+
+pub fn update() -> glint.Command(Nil) {
+  let help_text =
+    "Update any module info. Run 'gpac update --help' for more info.
+  "
+  use <- glint.command_help(help_text)
+  use <- glint.unnamed_args(glint.EqArgs(0))
+  use module_code <- glint.named_arg("code")
+  use module_units <- glint.flag(update_units_flag())
+  use module_grade <- glint.flag(update_grade_flag())
+
+  use named_args, _, flags <- glint.command()
+  let code = module_code(named_args)
+  let assert Ok(units) = module_units(flags)
+  let assert Ok(grade) = module_grade(flags)
+
+  let updated_fields = case units, grade {
+    -1, "" -> #(None, None)
+    u, "" -> #(Some(backend.Units(u)), None)
+    -1, g -> {
+      let decoder = backend.module_grade_decoder()
+      let assert Ok(mod_grade) =
+        decode.run(dynamic.string(g), decoder) as "grade is not of type Grade"
+      #(None, Some(backend.Grade(mod_grade)))
+    }
+    u, g -> {
+      let decoder = backend.module_grade_decoder()
+      let assert Ok(mod_grade) =
+        decode.run(dynamic.string(g), decoder) as "grade is not of type Grade"
+        #(Some(backend.Units(u)), Some(backend.Grade(mod_grade)))
+      }
+  }
+
+  case backend.update_module(code, updated_fields) {
+    Ok(Nil) -> io.println("successfully updated module info of module!")
+    Error(backend.NotInitialised) ->
+      io.println(
+        "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
+      )
+    Error(backend.ReadFromDBFileFail(_)) ->
+      io.println("gpac failed to update module: could not read from db file.")
+    Error(backend.ModuleNotFound) ->
+      io.println("gpac failed to update module: module not found.")
+    Error(backend.WriteToDBFileFail(_)) ->
+      io.println("gpac failed to update module: could not write to db file.")
+    _ -> io.println("gpac failed to update module: unexpected error.")
   }
 }

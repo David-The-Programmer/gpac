@@ -367,3 +367,50 @@ pub fn simulate_module_grade(
   let new_db = Database(modules: new_modules)
   write_db_to_file(db_filepath, new_db)
 }
+
+pub type ModuleUnitsField {
+  Units(Int)
+}
+
+pub type ModuleGradeField {
+  Grade(Grade)
+}
+
+pub fn update_module(
+  module_code: String,
+  updated_fields: #(Option(ModuleUnitsField), Option(ModuleGradeField)),
+) -> Result(Nil, BackendError) {
+  use is_init <- result.try(is_initialised())
+  use _ <- result.try(fn() {
+    case is_init {
+      False -> Error(NotInitialised)
+      True -> Ok(Nil)
+    }
+  }())
+  use db_filepath <- result.try(db_filepath())
+  use db <- result.try(read_db_from_file(db_filepath))
+
+  use module <- result.try(
+    list.find(db.modules, fn(module) { module.code == module_code })
+    |> result.map_error(fn(_) { ModuleNotFound }),
+  )
+  let updated_module = case updated_fields {
+    #(Some(Units(units)), Some(Grade(grade))) ->
+      Module(..module, units: units, grade: grade)
+    #(Some(Units(units)), None) -> Module(..module, units: units)
+    #(None, Some(Grade(grade))) -> Module(..module, grade: grade)
+    _ -> module
+  }
+
+  let new_modules =
+    db.modules
+    |> list.chunk(fn(mod) { mod.code == module_code })
+    |> list.flat_map(fn(chunk) {
+      case chunk == [module] {
+        True -> [updated_module]
+        False -> chunk
+      }
+    })
+  let new_db = Database(modules: new_modules)
+  write_db_to_file(db_filepath, new_db)
+}

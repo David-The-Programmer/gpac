@@ -10,6 +10,7 @@ pub fn main() -> Nil {
   |> glint.add(at: ["init"], do: frontend.init())
   |> glint.add(at: ["add"], do: frontend.add())
   |> glint.add(at: ["list"], do: frontend.list())
+  |> glint.add(at: ["update"], do: frontend.update())
   |> glint.add(at: ["remove"], do: frontend.remove())
   |> glint.add(at: ["gpa"], do: frontend.gpa())
   |> glint.add(at: ["simulate"], do: frontend.simulate())
