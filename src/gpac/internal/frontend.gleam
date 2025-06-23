@@ -301,15 +301,24 @@ pub fn list() -> glint.Command(Nil) {
   use <- glint.unnamed_args(glint.EqArgs(0))
   use _, _, _ <- glint.command()
 
-  case backend.list_modules() {
+  let list_result = backend.list_modules()
+  use <- defer(fn() {
+    case list_result {
+      Error(err) ->
+        io.println(
+          "ERROR: gpac failed to list modules: "
+          <> backend.error_description(err),
+        )
+      Ok(_) -> Nil
+    }
+  })
+  case list_result {
     Ok(modules) -> pretty_print_mods(modules)
     Error(backend.NotInitialised) ->
       io.println(
         "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
       )
-    Error(backend.ReadFromDBFileFail(_)) ->
-      io.println("gpac failed to list modules: could not read from db file.")
-    _ -> io.println("gpac failed to list modules: unexpected error.")
+    _ -> Nil
   }
 }
 

@@ -41,7 +41,8 @@ fn decode_error_desc(decode_error: decode.DecodeError) -> String {
 }
 
 fn decode_errors_desc(errors: List(decode.DecodeError)) -> String {
-  errors
+  "\n"
+  <> errors
   |> list.map(fn(e) { decode_error_desc(e) })
   |> string.join("\n")
 }
