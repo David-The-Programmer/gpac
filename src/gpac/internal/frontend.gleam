@@ -330,20 +330,30 @@ pub fn remove() -> glint.Command(Nil) {
   use named_args, _, _ <- glint.command()
   let code = module_code(named_args)
 
-  case backend.remove_module(code) {
+  let remove_result = backend.remove_module(code)
+  use <- defer(fn() {
+    case remove_result {
+      Error(err) ->
+        io.println(
+          "ERROR: gpac failed to remove module: "
+          <> backend.error_description(err),
+        )
+      Ok(_) -> Nil
+    }
+  })
+
+  case remove_result {
     Ok(Nil) -> io.println("successfully removed module")
     Error(backend.NotInitialised) -> {
       io.println(
         "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
       )
     }
-    Error(backend.ReadFromDBFileFail(_)) ->
-      io.println("gpac failed to remove module: could not read from db file.")
     Error(backend.ModuleNotFound) ->
-      io.println("gpac failed to remove module: module not found.")
-    Error(backend.WriteToDBFileFail(_)) ->
-      io.println("gpac failed to remove module: could not write to db file.")
-    _ -> io.println("gpac failed to remove module: unexpected error.")
+      io.println(
+        "gpac could not remove module of given code as no such module with given code exists. \nRun 'gpac list' to see all modules added to gpac.",
+      )
+    _ -> Nil
   }
 }
 
@@ -355,6 +365,7 @@ fn simulate_flag() -> glint.Flag(Bool) {
   |> glint.flag_help(help_text)
 }
 
+// TODO: log error using defer in gpa, simulate, update
 pub fn gpa() -> glint.Command(Nil) {
   let help_text = "Calculates the cumulative GPA of all modules added to gpac."
   use <- glint.command_help(help_text)
