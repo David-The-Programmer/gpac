@@ -67,14 +67,11 @@ pub fn init() -> glint.Command(Nil) {
     Ok(Nil) -> io.println("gpac successfully initialised!")
     Error(backend.AlreadyInitialised) ->
       io.println(
-        "gpac is already initialised, use --force to override, but proceed with caution, run 'gpac init --help to find out more.",
+        "gpac is already initialised, use --force to override, but proceed with caution, run 'gpac init --help' for more info.",
       )
     _ -> Nil
   }
 }
-
-// TODO: Change frontend error handling, to be able to use this function when reporting errors that is not caused by user, 
-// any user caused errors frontend should tell how to resolve if possible, like for e.g, initialisation
 
 fn validate_units_arg(units_arg: String) -> Result(Int, FrontendError) {
   int.parse(units_arg)
@@ -87,7 +84,7 @@ fn validate_units_arg(units_arg: String) -> Result(Int, FrontendError) {
       False ->
         Error(ArgValidationError(
           "units",
-          "'units' given is not greater than or equal to 0",
+          "given argument is not greater than or equal to 0",
         ))
     }
   })
@@ -99,9 +96,7 @@ fn validate_grade_arg(grade_arg: String) -> Result(backend.Grade, FrontendError)
   |> result.map_error(fn(_) {
     ArgValidationError(
       "grade",
-      "'grade' given can only be one of the following values: 
-
-      A+, A, A-, B+, B, B-, C+, C, D+, D, F, S, U",
+      "given argument is not one of the following values: \nA+, A, A-, B+, B, B-, C+, C, D+, D, F, S, U",
     )
   })
 }
@@ -133,31 +128,42 @@ pub fn add() -> glint.Command(Nil) {
 
   case arg_validation {
     Error(ArgValidationError(arg_name, issue)) -> {
-      io.println("'" <> arg_name <> "' error: " <> issue)
+      io.println("ERROR: argument <" <> arg_name <> ">: " <> issue)
       io.println(
-        "Run 'gpac add --help' for more info on the"
-        <> "'"
+        "Run 'gpac add --help' for more info on the "
+        <> "<"
         <> arg_name
-        <> "' argument",
+        <> "> argument.",
       )
     }
     Ok(#(units, grade)) -> {
       let result = backend.add_module(backend.Module(code, units, grade, grade))
+      use <- defer(fn() {
+        case result {
+          Error(err) ->
+            io.println(
+              "ERROR: gpac failed to add module: "
+              <> backend.error_description(err),
+            )
+          Ok(_) -> Nil
+        }
+      })
       case result {
         Ok(Nil) -> io.println("successfully added module to gpac!")
         Error(backend.NotInitialised) ->
           io.println(
             "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
           )
-        Error(backend.ReadFromDBFileFail(_)) ->
-          io.println("gpac failed to add module: could not read from db file.")
-        Error(backend.ModuleAlreadyExists) ->
+        Error(backend.ModuleAlreadyExists) -> {
           io.println(
-            "gpac failed to add module: module with same code already exists.",
+            "gpac could not add the given module info as a module with the same code already exists.",
           )
-        Error(backend.WriteToDBFileFail(_)) ->
-          io.println("gpac failed to add module: could not write to db file.")
-        _ -> io.println("gpac failed to add module: unexpected error.")
+          io.println(
+            "If you want to edit properties of the module of the given code, run 'gpac update <code> [ --grade=<STRING> --units=<INT> ]'.",
+          )
+          io.println("Run 'gpac update --help' for more info.")
+        }
+        _ -> Nil
       }
     }
   }
