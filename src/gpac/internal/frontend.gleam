@@ -27,6 +27,12 @@ pub fn gpac() -> glint.Command(Nil) {
   io.println("Try 'gpac --help' for more information.")
 }
 
+fn defer(cleanup: fn() -> Nil, body: fn() -> a) -> a {
+  let res = body()
+  cleanup()
+  res
+}
+
 fn force_flag() -> glint.Flag(Bool) {
   let help_text =
     "Use the flag --force=true or --force to forcefully reinitialise gpac.
@@ -46,30 +52,29 @@ pub fn init() -> glint.Command(Nil) {
   use _, _, flags <- glint.command()
   let assert Ok(force_init) = force(flags)
 
-  case backend.initialise(force_init) {
-    Ok(Nil) -> io.println("gpac successfully initialised!")
-    Error(backend.InitCheckFail(backend.DBDirCheckFail(_))) ->
-      io.println(
-        "gpac failed to initialise: could not check if db directory exists",
-      )
-    Error(backend.InitCheckFail(backend.DBFileCheckFail(_))) -> {
-      io.println("gpac failed to initialise: could not check if db file exists")
+  let init_result = backend.initialise(force_init)
+  use <- defer(fn() {
+    case init_result {
+      Error(err) -> {
+        io.println(
+          "ERROR: gpac failed to initialise: " <> backend.error_description(err),
+        )
+      }
+      Ok(_) -> Nil
     }
+  })
+  case init_result {
+    Ok(Nil) -> io.println("gpac successfully initialised!")
     Error(backend.AlreadyInitialised) ->
       io.println(
         "gpac is already initialised, use --force to override, but proceed with caution, run 'gpac init --help to find out more.",
       )
-    Error(backend.RemoveDBDirFail(_)) ->
-      io.println(
-        "gpac failed to initialise: failed to remove previous db directory",
-      )
-    Error(backend.CreateDBDirFail(_)) ->
-      io.println("gpac failed to initialise: failed to create new db directory")
-    Error(backend.WriteToDBFileFail(_)) ->
-      io.println("gpac failed to initialise: failed to create new db file")
-    _ -> io.println("gpac failed to initialise: unexpected error")
+    _ -> Nil
   }
 }
+
+// TODO: Change frontend error handling, to be able to use this function when reporting errors that is not caused by user, 
+// any user caused errors frontend should tell how to resolve if possible, like for e.g, initialisation
 
 fn validate_units_arg(units_arg: String) -> Result(Int, FrontendError) {
   int.parse(units_arg)
@@ -485,16 +490,16 @@ pub fn update() -> glint.Command(Nil) {
     u, "" -> #(Some(backend.Units(u)), None)
     -1, g -> {
       let decoder = backend.module_grade_decoder()
-      let assert Ok(mod_grade) =
-        decode.run(dynamic.string(g), decoder) as "grade is not of type Grade"
+      let assert Ok(mod_grade) = decode.run(dynamic.string(g), decoder)
+        as "grade is not of type Grade"
       #(None, Some(backend.Grade(mod_grade)))
     }
     u, g -> {
       let decoder = backend.module_grade_decoder()
-      let assert Ok(mod_grade) =
-        decode.run(dynamic.string(g), decoder) as "grade is not of type Grade"
-        #(Some(backend.Units(u)), Some(backend.Grade(mod_grade)))
-      }
+      let assert Ok(mod_grade) = decode.run(dynamic.string(g), decoder)
+        as "grade is not of type Grade"
+      #(Some(backend.Units(u)), Some(backend.Grade(mod_grade)))
+    }
   }
 
   case backend.update_module(code, updated_fields) {

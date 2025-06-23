@@ -5,6 +5,7 @@ import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import simplifile
 
 pub type BackendError {
@@ -22,6 +23,66 @@ pub type BackendError {
   CreateDBFileFail(simplifile.FileError)
   ModuleNotFound
   ModuleAlreadyExists
+}
+
+fn decode_error_desc(decode_error: decode.DecodeError) -> String {
+  case decode_error {
+    decode.DecodeError(expected, found, path) ->
+      "expected: "
+      <> expected
+      <> ", "
+      <> "found: "
+      <> found
+      <> ", "
+      <> "path: "
+      <> path
+      |> string.join(".")
+  }
+}
+
+fn decode_errors_desc(errors: List(decode.DecodeError)) -> String {
+  errors
+  |> list.map(fn(e) { decode_error_desc(e) })
+  |> string.join("\n")
+}
+
+fn json_decode_error_desc(error: json.DecodeError) -> String {
+  case error {
+    json.UnexpectedEndOfInput -> "unexpected end of input"
+    json.UnexpectedByte(str) -> "unexpected byte: " <> str
+    json.UnexpectedSequence(str) -> "unexpected sequence: " <> str
+    json.UnableToDecode(decode_errors) -> decode_errors_desc(decode_errors)
+  }
+}
+
+pub fn error_description(error: BackendError) -> String {
+  case error {
+    HomeDirNotFound -> "could not find HOME directory"
+    DBDirCheckFail(err) ->
+      "could not check if database directory exists: "
+      <> simplifile.describe_error(err)
+    DBFileCheckFail(err) ->
+      "could not check if database file exists: "
+      <> simplifile.describe_error(err)
+    InitCheckFail(err) ->
+      "initialisation checks failed: " <> error_description(err)
+    NotInitialised -> "backend is not initialised"
+    AlreadyInitialised -> "backend is already initialised"
+    ReadFromDBFileFail(err) ->
+      "could not read from database file: " <> simplifile.describe_error(err)
+    WriteToDBFileFail(err) ->
+      "could not write to database file: " <> simplifile.describe_error(err)
+    DecodeDBFail(err) ->
+      "could not decode database file: " <> json_decode_error_desc(err)
+    RemoveDBDirFail(err) ->
+      "could not remove database directory: " <> simplifile.describe_error(err)
+    CreateDBDirFail(err) ->
+      "could not create database directory: " <> simplifile.describe_error(err)
+    CreateDBFileFail(err) ->
+      "could not create database file: " <> simplifile.describe_error(err)
+    ModuleNotFound -> "module could not be found"
+    ModuleAlreadyExists -> "module already exists"
+  }
 }
 
 pub type Grade {
