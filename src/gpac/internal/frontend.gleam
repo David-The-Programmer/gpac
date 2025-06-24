@@ -451,7 +451,6 @@ pub fn simulate() -> glint.Command(Nil) {
     }
     Ok(#(code, grade)) -> {
       let result = backend.simulate_module_grade(code, grade)
-
       use <- defer(fn() {
         case result {
           Error(err) ->
@@ -541,18 +540,23 @@ pub fn update() -> glint.Command(Nil) {
     }
   }
 
-  case backend.update_module(code, updated_fields) {
+  let update_result = backend.update_module(code, updated_fields)
+  use <- defer(fn() {
+    case update_result {
+      Error(err) ->
+        io.println(
+          "ERROR: gpac failed to update module: "
+          <> backend.error_description(err),
+        )
+      Ok(_) -> Nil
+    }
+  })
+  case update_result {
     Ok(Nil) -> io.println("successfully updated module info of module!")
     Error(backend.NotInitialised) ->
       io.println(
         "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
       )
-    Error(backend.ReadFromDBFileFail(_)) ->
-      io.println("gpac failed to update module: could not read from db file.")
-    Error(backend.ModuleNotFound) ->
-      io.println("gpac failed to update module: module not found.")
-    Error(backend.WriteToDBFileFail(_)) ->
-      io.println("gpac failed to update module: could not write to db file.")
-    _ -> io.println("gpac failed to update module: unexpected error.")
+    _ -> Nil
   }
 }
