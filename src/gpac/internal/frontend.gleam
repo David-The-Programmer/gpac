@@ -374,22 +374,33 @@ pub fn gpa() -> glint.Command(Nil) {
   use _, _, flags <- glint.command()
   let assert Ok(include_simulated) = simulate(flags)
 
-  case backend.gpa(include_simulated) {
+  let gpa_result = backend.gpa(include_simulated)
+
+  use <- defer(fn() {
+    case gpa_result {
+      Error(err) ->
+        io.println(
+          "ERROR: gpac failed to calculate gpa: "
+          <> backend.error_description(err),
+        )
+      Ok(_) -> Nil
+    }
+  })
+
+  case gpa_result {
     Ok(#(gpa, simulated_gpa_option)) -> {
       io.println("Actual GPA: " <> float.to_string(gpa))
       case simulated_gpa_option {
         Some(simulated_gpa) ->
           io.println("Simulated GPA: " <> float.to_string(simulated_gpa))
-        None -> io.println("")
+        None -> Nil
       }
     }
     Error(backend.NotInitialised) ->
       io.println(
         "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
       )
-    Error(backend.ReadFromDBFileFail(_)) ->
-      io.println("gpac failed to calculate GPA: could not read from db file.")
-    _ -> io.println("gpac failed to calculate GPA: unexpected error.")
+    _ -> Nil
   }
 }
 
