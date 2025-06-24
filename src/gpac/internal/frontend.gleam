@@ -365,7 +365,6 @@ fn simulate_flag() -> glint.Flag(Bool) {
   |> glint.flag_help(help_text)
 }
 
-// TODO: log error using defer in gpa, simulate, update
 pub fn gpa() -> glint.Command(Nil) {
   let help_text = "Calculates the cumulative GPA of all modules added to gpac."
   use <- glint.command_help(help_text)
@@ -404,12 +403,13 @@ pub fn gpa() -> glint.Command(Nil) {
   }
 }
 
+// TODO: log error using defer in gpa, simulate, update
 pub fn simulate() -> glint.Command(Nil) {
   let help_text =
     "Allows user to simulate grades for their modules, including S/U options.
 
 
-    Run 'gpac simulate <code> <grade>' to update the simulated grade of module with given module code. This simulated grade will be used to calculate the simulated GPA, i.e, GPA that uses the simulated grade (instead of actual grade) of each module.
+    Run 'gpac simulate <code> <grade>' to set the simulated grade of the given module. This simulated grade will be used to calculate the simulated GPA, i.e, GPA that uses the simulated grade (instead of actual grade) of each module.
 
 
     Subsequently, run 'gpac gpa --include-simulated' to see the simulated GPA and actual GPA.
@@ -418,6 +418,12 @@ pub fn simulate() -> glint.Command(Nil) {
   Note: <grade> can only be one of the following values:
 
   A+, A, A-, B+, B, B-, C+, C, D+, D, F, S, U
+
+
+  Example: 
+
+  In order to simulate using S/U option for a module of code CS1231S, 
+  run 'gpac simulate CS1231S S' to set the simulated grade of CS1231S module to be Satisfactory.
   "
   use <- glint.command_help(help_text)
   use <- glint.unnamed_args(glint.EqArgs(0))
@@ -435,38 +441,34 @@ pub fn simulate() -> glint.Command(Nil) {
 
   case arg_validation {
     Error(ArgValidationError(arg_name, issue)) -> {
-      io.println("'" <> arg_name <> "' error: " <> issue)
+      io.println("ERROR: argument <" <> arg_name <> ">: " <> issue)
       io.println(
-        "Run 'gpac simulate --help' for more info on the"
-        <> "'"
+        "Run 'gpac simulate --help' for more info on the "
+        <> "<"
         <> arg_name
-        <> "' argument",
+        <> "> argument.",
       )
     }
     Ok(#(code, grade)) -> {
       let result = backend.simulate_module_grade(code, grade)
+
+      use <- defer(fn() {
+        case result {
+          Error(err) ->
+            io.println(
+              "ERROR: gpac failed to set simulated grade: "
+              <> backend.error_description(err),
+            )
+          Ok(_) -> Nil
+        }
+      })
       case result {
-        Ok(Nil) -> io.println("successfully updated simulated grade of module!")
+        Ok(Nil) -> io.println("successfully set simulated grade of module!")
         Error(backend.NotInitialised) ->
           io.println(
             "gpac is not initialised, run 'gpac init' to initialise gpac and try again.",
           )
-        Error(backend.ReadFromDBFileFail(_)) ->
-          io.println(
-            "gpac failed to update simulated grade of module: could not read from db file.",
-          )
-        Error(backend.ModuleNotFound) ->
-          io.println(
-            "gpac failed to update simulated grade of module: module not found.",
-          )
-        Error(backend.WriteToDBFileFail(_)) ->
-          io.println(
-            "gpac failed to update simulated grade of module: could not write to db file.",
-          )
-        _ ->
-          io.println(
-            "gpac failed to update simulated grade of module: unexpected error.",
-          )
+        _ -> Nil
       }
     }
   }
