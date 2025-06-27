@@ -6,10 +6,10 @@ import gleam/io
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
-import gleam/string
 import glint
 import glint/constraint
 import gpac/internal/backend
+import gpac/internal/format
 import snag
 
 type FrontendError {
@@ -169,130 +169,31 @@ pub fn add() -> glint.Command(Nil) {
   }
 }
 
-fn split_by_size_inner(
-  str: String,
-  size: Int,
-  acc: List(String),
-) -> List(String) {
-  case str {
-    "" -> list.reverse(acc)
-    _ -> {
-      let str_len = string.length(str)
-      let head = string.slice(str, 0, size)
-      let rest = string.slice(str, size, str_len - size)
-      split_by_size_inner(rest, size, [head, ..acc])
-    }
-  }
-}
-
-pub fn split_by_size(str: String, size: Int) -> List(String) {
-  split_by_size_inner(str, size, [])
-}
-
-fn format_table_body(
-  table_body: List(List(String)),
-  table_width: Int,
-) -> List(List(String)) {
-  table_body
-  |> list.flat_map(fn(row) {
-    let num_cols = list.length(row)
-    let col_width = { table_width - { num_cols + 1 } } / num_cols
-    let assert Ok(max_new_rows) =
-      row
-      |> list.map(fn(col) {
-        let col_value_len = string.length(col)
-        { int.to_float(col_value_len) /. int.to_float(col_width) }
-        |> float.ceiling
-        |> float.truncate
-      })
-      |> list.max(int.compare)
-
-    list.repeat(row, max_new_rows)
-    |> list.index_map(fn(row, i) {
-      row
-      |> list.map(fn(col) {
-        col
-        |> split_by_size(col_width)
-        |> list.index_map(fn(v, j) {
-          case i == j {
-            True -> v
-            False -> ""
-          }
-        })
-        |> string.join("")
-      })
-    })
-  })
-  |> list.map(fn(row) {
-    let col_width =
-      { table_width - { list.length(row) + 1 } } / list.length(row)
-    row
-    |> list.index_map(fn(col, i) {
-      let num_cols = list.length(row)
-      let diff = table_width - { { num_cols * col_width } + { num_cols + 1 } }
-      case i == { num_cols - 1 } {
-        True -> string.pad_end(col, col_width + diff, " ")
-        False -> string.pad_end(col, col_width, " ")
-      }
-    })
-  })
-}
-
-fn print_row(row: List(String)) -> Nil {
-  case row {
-    [] -> io.print("\n")
-    [col, ..rest] -> {
-      io.print(col <> "|")
-      print_row(rest)
-    }
-  }
-}
-
-fn print_table_body(body: List(List(String))) -> Nil {
-  case body {
-    [] -> Nil
-    [row, ..rest] -> {
-      io.print("|")
-      print_row(row)
-      print_table_body(rest)
-    }
-  }
-}
-
-fn pretty_print_table(
-  body: List(List(String)),
-  headers: List(String),
-  width: Int,
-) -> Nil {
-  io.println("+" <> string.repeat("-", width - 2) <> "+")
-
-  [headers]
-  |> format_table_body(width)
-  |> print_table_body
-  io.println(string.repeat("-", width))
-
-  body
-  |> format_table_body(width)
-  |> print_table_body
-
-  io.println("+" <> string.repeat("-", width - 2) <> "+")
-}
-
 fn pretty_print_mods(modules: List(backend.Module)) -> Nil {
   let table_width = 80
-  modules
-  |> list.map(fn(mod) {
-    [
-      mod.code,
-      int.to_string(mod.units),
-      backend.grade_to_string(mod.grade),
-      backend.grade_to_string(mod.simulated_grade),
-    ]
-  })
-  |> pretty_print_table(
-    ["Module Code", "Units", "Grade", "Simulated Grade"],
-    table_width,
+  let rows =
+    modules
+    |> list.map(fn(mod) {
+      [
+        mod.code,
+        int.to_string(mod.units),
+        backend.grade_to_string(mod.grade),
+        backend.grade_to_string(mod.simulated_grade),
+      ]
+    })
+  format.Table(
+    columns: [
+      format.Column("Module Code", format.FractionalUnit(1)),
+      format.Column("Units", format.FractionalUnit(1)),
+      format.Column("Grade", format.FractionalUnit(1)),
+      format.Column("Simulated Grade", format.FractionalUnit(1)),
+    ],
+    rows: rows,
+    total_width: Some(table_width),
+    gap_width: Some(1),
   )
+  |> format.table_to_string
+  |> io.println
 }
 
 pub fn list() -> glint.Command(Nil) {
@@ -403,7 +304,6 @@ pub fn gpa() -> glint.Command(Nil) {
   }
 }
 
-// TODO: log error using defer in gpa, simulate, update
 pub fn simulate() -> glint.Command(Nil) {
   let help_text =
     "Allows user to simulate grades for their modules, including S/U options.

@@ -1,0 +1,16 @@
+---
+version: 1.3.1
+title: table to string test: fractional columns expand to fit table width if cannot fit exactly
+file: ./test/gpac_test.gleam
+test_name: table_to_string_fractional_columns_expand_to_fit_table_width_if_cannot_fit_exactly_test
+---
++----------+
+|col|col|co|
+| 1 | 2 |l |
+|   |   |3 |
+------------
+|hel|wor|lo|
+|lo |ld |l |
+|nig|sun|by|
+|ht |ny |e |
++----------+

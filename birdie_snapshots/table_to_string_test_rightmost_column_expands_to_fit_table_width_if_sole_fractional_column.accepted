@@ -1,0 +1,10 @@
+---
+version: 1.3.1
+title: table to string test: rightmost column expands to fit table width if sole fractional column 
+---
++------------------+
+|col 1|col 2       |
+--------------------
+|hello|world       |
+|night|sunny       |
++------------------+

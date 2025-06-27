@@ -1,0 +1,12 @@
+---
+version: 1.3.1
+title: table to string test: row value length equal column width
+file: ./test/gpac_test.gleam
+test_name: table_to_string_row_value_length_equal_column_width_test
+---
++-----------+
+|col 1|col 2|
+-------------
+|hello|world|
+|night|sunny|
++-----------+
