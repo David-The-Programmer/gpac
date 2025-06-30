@@ -15,15 +15,38 @@ Run the following commands:
 ```sh
 sudo pacman -S git base-devel
 git clone https://github.com/David-The-Programmer/gpac-install.git
-cd gpac-install
+cd gpac-install/arch
 makepkg -si
 ```
+Then you can just delete the folder afterwards.
+
+### Installation via script (Not Recommended)
+
+Coming soon...
 
 ## Usage
 
 Run `gpac --help` to get an brief overview of all subcommands.
 
 Run `gpac <subcommand> --help` to get more information on each subcommand.
+
+## Uninstallation
+
+### Via package manager
+
+#### Arch
+
+Via pacman:
+```sh
+sudo pacman -Rns gpac # will remove all dependencies of gpac as well
+```
+Or yay:
+```sh
+yay -Rns gpac # will remove all dependencies of gpac as well
+```
+`gpac` actually stores the module information in `~/.config/gpac/gpac_db.json`.
+
+For a complete removal, run `rm -r ~/.config/gpac/` to remove that directory.
 
 ## Development
 
